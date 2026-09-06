@@ -25,7 +25,7 @@ classifiers = [
 dependencies = [
   "pydantic>=2.7,<3",       # typed artifact models; the schema IS the product
   "PyYAML>=6.0,<7",         # contracts are git-friendly YAML
-  "httpx>=0.27,<1",         # connector transport
+  "httpx>=0.28.1,<1",         # connector transport
 ]
 
 [project.optional-dependencies]
