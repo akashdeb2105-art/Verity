@@ -12,6 +12,8 @@ root_packages =
     verity_connectors
     verity_extract
     verity_verifier
+    verity_capture
+    verity_compiler
     verity_cli
     verity_sandbox
 
@@ -38,6 +40,8 @@ forbidden_modules =
     verity_connectors
     verity_extract
     verity_verifier
+    verity_capture
+    verity_compiler
     verity_cli
     verity_sandbox
 
@@ -46,9 +50,26 @@ name = Package layering
 type = layers
 layers =
     verity_cli
-    verity_verifier
+    verity_verifier | verity_compiler
+    verity_capture
     verity_connectors | verity_extract | verity_evidence
     verity_schema
+
+# 'verity_verifier | verity_compiler' places them side by side deliberately:
+# neither may import the other. The compiler proposes contracts; the verifier
+# evaluates them. Coupling the two would mean a contract could only be checked
+# by the thing that wrote it, which is the opposite of the point.
+
+[importlinter:contract:capture-does-not-verify]
+name = Capture records what happened and never judges it
+type = forbidden
+source_modules =
+    verity_capture
+forbidden_modules =
+    verity_verifier
+    verity_compiler
+    verity_cli
+    verity_sandbox
 
 [importlinter:contract:sandbox-is-a-fixture]
 name = The sandbox is a fixture and must not import Verity logic
