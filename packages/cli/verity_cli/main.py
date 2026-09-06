@@ -38,6 +38,8 @@ from verity_verifier import (
 
 from .output import Printer, render_report
 from .reporters import github_annotations, summary_markdown, write_json, write_junit
+from .teach import add_arguments as add_teach_arguments
+from .teach import cmd_inspect, cmd_teach
 
 EXIT_USAGE = 4
 DEFAULT_FAIL_ON = "fail,inconclusive"
@@ -102,6 +104,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     lint_cmd.add_argument("paths", nargs="+")
     lint_cmd.set_defaults(handler=cmd_lint)
+
+    teach_cmd = sub.add_parser(
+        "teach", help="record a demonstration and propose a contract",
+        description="Open a browser, watch someone do the task once, and propose "
+                    "a WorkGraph and an Outcome Contract from what was observed.",
+    )
+    add_teach_arguments(teach_cmd)
+    teach_cmd.set_defaults(handler=cmd_teach)
+
+    inspect_cmd = sub.add_parser(
+        "inspect", help="show what a recording compiles to",
+        description="Compile a saved recording without recording anything new.",
+    )
+    inspect_cmd.add_argument("session", help="path to a recording")
+    inspect_cmd.add_argument("--name", default="recorded_workflow")
+    inspect_cmd.add_argument("--contract", help="write the proposed contract here")
+    inspect_cmd.add_argument("--graph", help="write the WorkGraph here")
+    inspect_cmd.add_argument("--no-color", action="store_true")
+    inspect_cmd.set_defaults(handler=cmd_inspect)
 
     doctor_cmd = sub.add_parser("doctor", help="check the local environment")
     doctor_cmd.add_argument("--sandbox-url", default=_default_sandbox_url())

@@ -38,6 +38,11 @@ sandbox = [
 extract = [
   "pdfplumber>=0.11.10,<1", # PDF text+layout with per-word bounding boxes (MIT)
 ]
+teach = [
+  # Only the recorder needs a browser. Every other part of capture, and the
+  # whole compiler, works without one -- which is why this is an extra.
+  "playwright>=1.47,<2",
+]
 dev = [
   "pytest>=9.1.1,<10",
   "pytest-cov>=7.1.0",
@@ -68,6 +73,8 @@ packages = [
   "packages/evidence/verity_evidence",
   "packages/connectors/verity_connectors",
   "packages/extract/verity_extract",
+  "packages/capture/verity_capture",
+  "packages/compiler/verity_compiler",
   "packages/verifier/verity_verifier",
   "packages/cli/verity_cli",
   "apps/sandbox/verity_sandbox",
@@ -90,18 +97,19 @@ ignore = ["S101"]  # assert is fine in tests and in internal invariants
 python_version = "3.10"
 strict = true
 warn_unreachable = true
-mypy_path = "packages/schema:packages/evidence:packages/connectors:packages/extract:packages/verifier:packages/cli:apps/sandbox"
+mypy_path = "packages/schema:packages/evidence:packages/connectors:packages/extract:packages/capture:packages/compiler:packages/verifier:packages/cli:apps/sandbox"
 exclude = ["^tests/", "^bench/"]
 
 [[tool.mypy.overrides]]
-module = ["pdfplumber.*", "reportlab.*"]
+module = ["pdfplumber.*", "reportlab.*", "playwright.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [
   "packages/schema", "packages/evidence", "packages/connectors",
-  "packages/extract", "packages/verifier", "packages/cli", "apps/sandbox",
+  "packages/extract", "packages/capture", "packages/compiler",
+  "packages/verifier", "packages/cli", "apps/sandbox",
 ]
 addopts = "-q --strict-markers"
 markers = [

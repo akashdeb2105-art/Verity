@@ -40,7 +40,9 @@ def ledger_connector(
         name="ledger",
         base_url=base_url,
         routes={
-            "bill": ResourceRoute("/api/bills"),
+            # `key` looks a bill up by the invoice reference it was raised for,
+            # which is how a person finds one on the screen.
+            "bill": ResourceRoute("/api/bills", key_param="ref"),
             "bills": ResourceRoute("/api/bills"),
             "event": ResourceRoute("/api/ledger_events"),
             "events": ResourceRoute("/api/ledger_events"),
