@@ -9,6 +9,15 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    # Only open a pull request when the new version falls OUTSIDE the range we
+    # already declare. Without this, pip's default raises the lower bound every
+    # time anything is released -- so `pydantic>=2.7,<3` produces a pull request
+    # for pydantic 2.13.5 even though 2.13.5 already satisfies it. That is pure
+    # noise, and noise is how a real security update gets scrolled past.
+    #
+    # Security updates are unaffected: Dependabot raises those regardless of
+    # this setting.
+    versioning-strategy: increase-if-necessary
     commit-message:
       prefix: "chore(deps)"
     groups:

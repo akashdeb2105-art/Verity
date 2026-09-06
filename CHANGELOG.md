@@ -14,7 +14,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - GitHub Actions pinned to `checkout@v7`, `setup-python@v7` and
   `upload-artifact@v7`.
 
+- Dependency floors raised to pydantic 2.13.5, PyYAML 6.0.3, fastapi 0.141.1
+  and reportlab 5.0.1. reportlab 5 is a major release; it was verified to
+  produce byte-identical invoice PDFs before being accepted, since the document
+  extraction tests read those bytes.
+
 ### Fixed
+- Dependabot uses `versioning-strategy: increase-if-necessary`, so it no longer
+  opens a pull request merely to raise a lower bound that the installed version
+  already satisfies. Security updates are unaffected. Without this, every
+  release of any dependency produced a pull request, and that volume of noise is
+  how a real security update gets scrolled past.
 - Dependabot no longer requests a `dependencies` label. The label does not
   exist in this repository, and naming a missing label made Dependabot warn on
   every pull request it opened.
