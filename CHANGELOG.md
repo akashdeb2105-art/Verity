@@ -35,8 +35,24 @@ once and propose the contract itself.
   duplicates, forbidden outcomes, branches, tolerances — and names any document
   that was opened but not read.
 
+**Model layer** (`verity_ai`)
+- Provider-agnostic: OpenRouter, Google AI Studio, any OpenAI-compatible
+  endpoint, and local Ollama. Budget ceilings on calls, input size and cost.
+- Used by `verity teach --ai` to suggest checks nobody demonstrated and to
+  write clearer explanations. Nothing it returns is trusted: a suggestion must
+  parse, use only defined functions, reference only facts the recording
+  established, and not restate an existing check. Anything else is discarded
+  and counted.
+- Suggestions are written **commented out**. Accepting one is a person deleting
+  a `#`.
+- A new import-linter contract forbids the verifier from importing `verity_ai`
+  or any provider SDK. Verification stays deterministic and free per run.
+- Tests never call a paid endpoint: request shapes are asserted against mock
+  transports and the end-to-end path replays a recorded cassette.
+
 **CLI**
 - `verity teach` records a demonstration; `verity inspect` compiles a saved one.
+  Both accept `--ai`.
 
 **Boundaries**
 - Two new import-linter contracts: the compiler and the verifier are siblings

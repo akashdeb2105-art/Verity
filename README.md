@@ -218,7 +218,15 @@ also why it proposes less than a person would.
 
 The draft says so itself. A single successful run cannot show duplicates,
 forbidden outcomes, branches or tolerances, and the file opens by listing
-exactly that. See [docs/teaching](docs/teaching/recording-a-demonstration.md).
+exactly that.
+
+Add `--ai` and a model suggests the checks nobody demonstrated — but it only
+ever **proposes**. Every suggestion must parse, may reference only facts the
+recording established, and is written into the file commented out; accepting
+one means deleting a `#`. The verifier never uses a model and cannot: an
+import rule forbids it, because a verdict that is not reproducible is not
+evidence. See [docs/teaching](docs/teaching/recording-a-demonstration.md) and
+[ADR-0010](docs/adr/0010-where-a-model-belongs.md).
 
 ## What is not built yet
 

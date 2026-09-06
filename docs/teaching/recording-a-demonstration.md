@@ -19,16 +19,51 @@ To compile a recording again later, without recording anything new:
 verity inspect invoice.session.json --contract draft.yaml --graph graph.json
 ```
 
-## Nothing here calls a model
+## The core calls no model
 
 Every step, variable and assertion is derived from a value that literally
-appeared in the recording. That is not a limitation being made a virtue: a
-wrong proposed assertion is worse than a missing one, because a person may
-trust it. Proposing only what was observed keeps precision high by
-construction, and it means teaching works with no API key.
+appeared in the recording. A wrong proposed assertion is worse than a missing
+one, because a person may trust it — so proposing only what was observed keeps
+precision high by construction, and teaching works with no API key at all.
 
-A model may later improve the *wording* of a proposal. It does not decide what
-is checked.
+## Adding a model with `--ai`
+
+```bash
+verity teach --url ... --contract draft.yaml --ai
+```
+
+A model then suggests checks nobody demonstrated and writes clearer
+explanations. "No payment exists for this invoice" is obvious to a reader and
+invisible in a recording of a successful run.
+
+Nothing it returns is trusted. Every suggestion must parse, may use only
+functions the language defines, may reference only facts the recording
+established, and must not restate a check already derived. Anything else is
+discarded and the count is shown:
+
+```
+2 suggested, 1 discarded, $0.0000
+  suggests   vendor_is_not_blank  (expected)
+  suggests   bill_is_not_already_paid  (forbidden)
+  discarded  totally_made_up: references approvals, which the recording never established
+```
+
+Suggestions are written into the contract **commented out**. Accepting one
+means deleting a `#`. A suggestion is not an observation, and the file does not
+let the two look alike.
+
+Configure a provider in `.env` (which is gitignored and must never be
+committed):
+
+```
+VERITY_LLM_PROVIDER=openrouter     # or gemini, openai, ollama
+OPENROUTER_API_KEY=...
+```
+
+The verifier never uses a model, and cannot: an `import-linter` contract
+forbids it. A verdict that is not reproducible is not evidence, a model judging
+a document can be argued with by that document, and verification that costs
+money per run cannot run every night. See ADR-0010.
 
 ## What it can work out, and how
 
