@@ -23,9 +23,9 @@ from verity_schema import (
     SourceSpec,
     Strength,
 )
+from verity_schema.expr import FUNCTION_NAMES as _FUNCTIONS
 
 from .errors import ContractTypeError
-from .expr import ALL_FUNCTION_NAMES_SAFE as _FUNCTIONS
 from .expr import Call, Expr, Path, parse, referenced_roots, walk
 
 RESERVED_ROOTS = frozenset({"inputs"})

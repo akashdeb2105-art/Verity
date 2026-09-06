@@ -13,6 +13,7 @@ This package is a leaf: it imports nothing else from Verity, so any consumer
 can adopt the format without inheriting a dependency on the verifier.
 """
 
+from . import expr
 from ._version import __version__, get_version
 from .common import (
     SCHEMA_VERSION,
@@ -89,6 +90,7 @@ __all__ = [
     "VerificationReport",
     "WorkGraph",
     "__version__",
+    "expr",
     "get_version",
     "worst",
 ]

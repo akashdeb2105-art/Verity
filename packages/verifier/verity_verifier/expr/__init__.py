@@ -1,9 +1,31 @@
-"""The assertion expression language: small, closed, deterministic.
+"""Evaluating assertion expressions.
 
-Hand-tokenized and hand-parsed. There is no path from a contract file to the
-Python interpreter -- no ``eval``, no ``exec``, no ``compile``, no dynamic
-attribute access. See :mod:`verity_verifier.expr.lexer` for why.
+The language itself -- lexer, parser, AST -- lives in :mod:`verity_schema.expr`,
+because parsing a contract is a format concern and both the compiler that
+writes contracts and the verifier that evaluates them need it. Only evaluation
+lives here, and only the verifier does that.
+
+Re-exported below so callers have one import for the whole language.
 """
+
+from verity_schema.expr import (
+    COMPARE_OPS,
+    BoolOp,
+    Call,
+    Compare,
+    Expr,
+    ExpressionSyntaxError,
+    ListLit,
+    Literal,
+    Not,
+    Path,
+    parse,
+    referenced_paths,
+    referenced_roots,
+    render,
+    tokenize,
+    walk,
+)
 
 from .evaluator import (
     ALL_FUNCTION_NAMES as ALL_FUNCTION_NAMES_SAFE,
@@ -16,22 +38,6 @@ from .evaluator import (
     evaluate,
     to_decimal,
 )
-from .lexer import ExpressionSyntaxError, tokenize
-from .nodes import (
-    BoolOp,
-    Call,
-    Compare,
-    Expr,
-    ListLit,
-    Literal,
-    Not,
-    Path,
-    referenced_paths,
-    referenced_roots,
-    render,
-    walk,
-)
-from .parser import COMPARE_OPS, parse
 
 __all__ = [
     "ALL_FUNCTION_NAMES_SAFE",

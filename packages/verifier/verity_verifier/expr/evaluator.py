@@ -16,7 +16,17 @@ from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from .nodes import BoolOp, Call, Compare, Expr, ListLit, Literal, Not, Path
+from verity_schema.expr.nodes import (
+    FUNCTION_NAMES,
+    BoolOp,
+    Call,
+    Compare,
+    Expr,
+    ListLit,
+    Literal,
+    Not,
+    Path,
+)
 
 MAX_REGEX_LENGTH = 512
 MAX_REGEX_SUBJECT = 100_000
@@ -243,6 +253,14 @@ BUILTINS: dict[str, EagerFn] = {
 LAZY_BUILTINS = frozenset({"any", "all", "none", "unique"})
 
 ALL_FUNCTION_NAMES = frozenset(BUILTINS) | LAZY_BUILTINS
+
+# The language declares its vocabulary in verity_schema.expr; this module
+# supplies the implementations. If the two ever disagree, a contract could pass
+# type checking and then fail at evaluation, so they are checked at import.
+assert ALL_FUNCTION_NAMES == FUNCTION_NAMES, (
+    "the evaluator and the language definition disagree: "
+    f"{ALL_FUNCTION_NAMES ^ FUNCTION_NAMES}"
+)
 
 
 # --------------------------------------------------------------------------

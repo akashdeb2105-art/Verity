@@ -10,6 +10,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+#: Every function the assertion language defines. Declared here, beside the
+#: parser, because the set of legal names is part of the *language*: anything
+#: that reads or writes a contract needs to know it. The verifier supplies the
+#: implementations; it does not get to decide the vocabulary.
+FUNCTION_NAMES: frozenset[str] = frozenset({
+    "within", "abs", "sum", "count", "exists", "is_null", "matches",
+    "before", "after", "within_window", "any", "all", "none", "unique",
+})
+
 
 @dataclass(frozen=True)
 class Literal:
@@ -95,6 +104,11 @@ def walk(node: Expr):  # type: ignore[no-untyped-def]
             yield from walk(operand)
     elif isinstance(node, Not):
         yield from walk(node.operand)
+
+
+def unknown_functions(node: Expr) -> set[str]:
+    """Function names the expression uses that the language does not define."""
+    return {n.name for n in walk(node) if isinstance(n, Call)} - FUNCTION_NAMES
 
 
 def referenced_roots(node: Expr) -> set[str]:
