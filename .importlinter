@@ -1,0 +1,62 @@
+# The portability boundary is non-negotiable (final direction, section 6).
+# These contracts are written BEFORE runtime/capture/compiler exist, so the
+# boundary cannot be violated even once.
+
+[importlinter]
+# The executor packages named below do not exist yet. Declaring the boundary
+# before they are written is the point: it cannot be violated even once.
+include_external_packages = True
+root_packages =
+    verity_schema
+    verity_evidence
+    verity_connectors
+    verity_extract
+    verity_verifier
+    verity_cli
+    verity_sandbox
+
+[importlinter:contract:verifier-independence]
+name = Verifier must not depend on any executor, capture or compiler
+type = forbidden
+source_modules =
+    verity_verifier
+forbidden_modules =
+    verity_runtime
+    verity_capture
+    verity_compiler
+    verity_cli
+    verity_sandbox
+allow_indirect_imports = False
+
+[importlinter:contract:schema-is-a-leaf]
+name = Schema depends on nothing else in the project
+type = forbidden
+source_modules =
+    verity_schema
+forbidden_modules =
+    verity_evidence
+    verity_connectors
+    verity_extract
+    verity_verifier
+    verity_cli
+    verity_sandbox
+
+[importlinter:contract:layering]
+name = Package layering
+type = layers
+layers =
+    verity_cli
+    verity_verifier
+    verity_connectors | verity_extract | verity_evidence
+    verity_schema
+
+[importlinter:contract:sandbox-is-a-fixture]
+name = The sandbox is a fixture and must not import Verity logic
+type = forbidden
+source_modules =
+    verity_sandbox
+forbidden_modules =
+    verity_verifier
+    verity_connectors
+    verity_extract
+    verity_cli

@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.import_linter_cache/
+*.egg-info
+htmlcov/
+.coverage
+coverage.xml
+
+# Node
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# Secrets and local config -- never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.*
+
+# Browser state -- never commit
+browser-profiles/
+.playwright/
+playwright-report/
+test-results/
+
+# Generated / local artifacts
+.verity/
+evidence-out/
+*.evidence.tar
+.sandbox-state/
+generated-pdfs/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

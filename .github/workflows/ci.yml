@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PYTHONPATH: packages/schema:packages/evidence:packages/connectors:packages/extract:packages/verifier:packages/cli:apps/sandbox:.
+
+jobs:
+  check:
+    name: lint · types · boundaries · tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: python -m pip install -e ".[dev,sandbox,extract]"
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Type check
+        run: python -m mypy packages apps
+
+      - name: Architectural boundaries
+        # The verifier must never depend on an executor. Checked here so the
+        # boundary cannot erode one convenient import at a time.
+        run: lint-imports --config .importlinter
+
+      - name: Tests
+        run: python -m pytest -q -p no:warnings
+
+  determinism:
+    name: determinism · security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev,sandbox,extract]"
+
+      - name: Determinism
+        run: python -m pytest tests/determinism -q -p no:warnings
+
+      - name: Security invariants
+        run: python -m pytest tests/security -q -p no:warnings
+
+  quickstart:
+    name: quickstart under five minutes
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Clone-to-verified, timed
+        # The README promises this path. If it is not a test, it is not true.
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          python -m pip install -e ".[dev,sandbox,extract]"
+          ./scripts/with-sandbox.sh python -m verity_cli.main verify \
+            --contract examples/contracts/invoice_to_po.yaml --live \
+            --input invoice_number=INV-4471 --input po_number=PO-2211
+          elapsed=$(( $(date +%s) - start ))
+          echo "quickstart took ${elapsed}s"
+          if [ "$elapsed" -gt 300 ]; then
+            echo "::error::quickstart took ${elapsed}s, over the five-minute promise"
+            exit 1
+          fi
+
+  verification:
+    name: verification against every perturbation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev,sandbox,extract]"
+
+      - name: Ground truth
+        run: python -m pytest tests/integration/test_verification.py -q -p no:warnings
+
+      - name: Self-check with the real CLI
+        run: |
+          ./scripts/with-sandbox.sh python -m verity_cli.main verify \
+            --contract examples/contracts/invoice_to_po.yaml --live \
+            --input invoice_number=INV-4471 --input po_number=PO-2211 \
+            --junit verity-junit.xml --bundle verity-evidence \
+            --github-annotations
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verity-evidence-bundle
+          path: |
+            verity-evidence/
+            verity-junit.xml
