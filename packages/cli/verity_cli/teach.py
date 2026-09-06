@@ -12,11 +12,23 @@ assuming a proposal is complete.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from verity_capture import CaptureError, read_session, write_session
-from verity_compiler import analyse, build, normalize, propose, summarise, to_yaml
+from verity_compiler import (
+    ContractDraft,
+    Enrichment,
+    Step,
+    analyse,
+    build,
+    enrich,
+    normalize,
+    propose,
+    summarise,
+    to_yaml,
+)
 from verity_schema import RiskLevel
 
 from .output import Printer
@@ -33,6 +45,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                         help="restrict the session to these domains (repeatable)")
     parser.add_argument("--headless", action="store_true",
                         help="run without a visible window (for scripted recordings)")
+    parser.add_argument(
+        "--ai", action="store_true",
+        help="ask a model to suggest extra checks and clearer wording. "
+             "Suggestions are written commented out; nothing is enforced until "
+             "you accept it.",
+    )
+    parser.add_argument("--ai-provider", help="openrouter | gemini | openai | ollama")
+    parser.add_argument("--ai-model", help="override the model name")
     parser.add_argument("--no-color", action="store_true")
 
 
@@ -112,6 +132,7 @@ def _compile_and_report(session: object, args: argparse.Namespace, printer: Prin
     inputs, comparisons, constants = analyse(steps)
     draft = propose(steps, name=args.name)
     graph = build(steps, inputs, name=args.name)
+    enrichment = _maybe_enrich(draft, steps, args, printer)
 
     printer.line()
     printer.line(printer.style("  Steps", "bold"))
@@ -146,7 +167,7 @@ def _compile_and_report(session: object, args: argparse.Namespace, printer: Prin
         printer.line(printer.style(f"  graph      {args.graph}  {summarise(graph)}", "dim"))
 
     if args.contract:
-        Path(args.contract).write_text(to_yaml(draft), encoding="utf-8")
+        Path(args.contract).write_text(to_yaml(draft, enrichment), encoding="utf-8")
         printer.line()
         printer.line(f"  Proposed contract  ->  {args.contract}")
         printer.line(
@@ -163,6 +184,50 @@ def _compile_and_report(session: object, args: argparse.Namespace, printer: Prin
         "  branches or tolerances. Read it before you trust it.", "dim"))
     printer.line()
     return 0
+
+
+def _maybe_enrich(
+    draft: ContractDraft, steps: list[Step], args: argparse.Namespace, printer: Printer
+) -> Enrichment | None:
+    """Ask a model for suggestions, if one is configured and asked for.
+
+    Never fatal. Enrichment improves a result that already exists, so a missing
+    key or an unreachable endpoint costs suggestions and nothing else.
+    """
+    if not getattr(args, "ai", False):
+        return None
+
+    from verity_ai import AiCassette, AiCassetteMode, Budget, CassetteProvider, build_provider
+
+    provider = build_provider(
+        getattr(args, "ai_provider", None), model=getattr(args, "ai_model", None)
+    )
+    cassette_path = os.environ.get("VERITY_AI_CASSETTE")
+    if cassette_path:
+        mode = AiCassetteMode(os.environ.get("VERITY_AI_CASSETTE_MODE", "replay"))
+        cassette = CassetteProvider(provider, AiCassette(cassette_path, mode))
+        provider = cassette
+
+    printer.line()
+    printer.line(
+        printer.style(
+            f"  Asking {provider.name} ({provider.model}) for suggestions", "dim"
+        )
+    )
+
+    result = enrich(draft, steps, provider, budget=Budget())
+
+    if not result.ok:
+        printer.line(printer.style(f"  no suggestions: {result.error}", "drift"))
+        return result
+
+    printer.line(printer.style(f"  {result.summary}", "dim"))
+    for suggestion in result.suggestions:
+        where = "forbidden" if suggestion.forbidden else "expected"
+        printer.line(f"    suggests   {suggestion.id}  ({where})")
+    for reason in result.rejected:
+        printer.line(printer.style(f"    discarded  {reason}", "dim"))
+    return result
 
 
 def _unused(_: object = sys) -> None:  # pragma: no cover

@@ -12,6 +12,7 @@ that wrote it would prove nothing.
 """
 
 from .contract import ContractDraft, propose, to_yaml
+from .enrich import Enrichment, Suggestion, build_prompt, enrich
 from .graph import build, summarise
 from .normalize import Step, normalize, system_of
 from .values import (
@@ -24,7 +25,8 @@ from .values import (
 )
 
 __all__ = [
-    "ContractDraft", "ProposedComparison", "ProposedConstant", "ProposedInput",
-    "Step", "ValueGroup", "analyse", "build", "build_index", "normalize",
+    "ContractDraft", "Enrichment", "ProposedComparison", "ProposedConstant", "ProposedInput",
+    "Step", "Suggestion", "ValueGroup", "analyse", "build", "build_index",
+    "build_prompt", "enrich", "normalize",
     "propose", "summarise", "system_of", "to_yaml",
 ]

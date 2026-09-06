@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from verity_schema import RiskLevel
 
@@ -93,10 +94,18 @@ def propose(steps: list[Step], *, name: str = "recorded_workflow") -> ContractDr
     )
 
 
-def to_yaml(draft: ContractDraft) -> str:
-    """Render the draft as a contract file a person can read and edit."""
+def to_yaml(draft: ContractDraft, enrichment: Any = None) -> str:
+    """Render the draft as a contract file a person can read and edit.
+
+    ``enrichment`` is an optional :class:`~verity_compiler.enrich.Enrichment`.
+    Anything a model suggested is written **commented out**, under a heading
+    that says so. Accepting a suggestion is then an explicit act -- somebody
+    deletes a ``#`` -- rather than a check that quietly starts being enforced
+    because a model was confident about it.
+    """
     lines: list[str] = []
     add = lines.append
+    explanations = dict(getattr(enrichment, "explanations", {}) or {})
 
     add(f"# DRAFT -- proposed from one recorded demonstration of '{draft.name}'.")
     add("#")
@@ -117,9 +126,14 @@ def to_yaml(draft: ContractDraft) -> str:
     add("kind: OutcomeContract")
     add("")
     add("metadata:")
-    add(f"  name: {draft.name}")
+    add(f"  name: {getattr(enrichment, 'workflow_name', None) or draft.name}")
     add("  version: 0.1.0")
-    add("  description: Proposed from a recorded demonstration. Review before use.")
+    description = getattr(enrichment, "description", None)
+    if description:
+        add(f"  description: {description}")
+        add("  # description suggested by a model; the checks below were not")
+    else:
+        add("  description: Proposed from a recorded demonstration. Review before use.")
     add(f"  risk: {draft.risk.value}")
 
     if draft.inputs:
@@ -166,18 +180,21 @@ def to_yaml(draft: ContractDraft) -> str:
         add(f"  - id: {_comparison_id(comparison)}")
         add(f"    assert: '{_comparison_expression(comparison)}'")
         add("    because: >-")
-        add(f"      {_comparison_reason(comparison)}")
+        add(
+            "      "
+            + (explanations.get(_comparison_id(comparison)) or _comparison_reason(comparison))
+        )
         if not comparison.both_explicit:
             add("    # Lower confidence: this value was on screen, but the person did")
             add("    # not click it. Confirm they meant to compare it.")
         add("")
     for constant in draft.constants:
         field_name = _field_name(constant.system, constant.key)
-        add(f"  - id: {constant.system}_{field_name}_is_{constant.value.lower()}")
+        constant_id = f"{constant.system}_{field_name}_is_{constant.value.lower()}"
+        add(f"  - id: {constant_id}")
         add(f"    assert: '{constant.system}.{field_name} == \"{constant.value}\"'")
         add("    because: >-")
-        add(f"      The recording ended with {_humanise(constant.key)} showing "
-            f"'{constant.value}'.")
+        add(f"      {explanations.get(constant_id) or _default_constant_reason(constant)}")
         add("    # Confirm this is the required end state and not just what happened")
         add("    # to be true that day.")
         add("")
@@ -186,6 +203,8 @@ def to_yaml(draft: ContractDraft) -> str:
         add("# TODO: a document was opened but not read. See the note at the end of")
         add("#       this file. Document checks are usually the important ones.")
         add("")
+    _add_suggestions(add, enrichment)
+
     add("# TODO: what must NOT have happened. Nothing here can be proposed from a")
     add("# recording, and it is often the most valuable part of a contract.")
     add("forbidden: []")
@@ -204,6 +223,55 @@ def to_yaml(draft: ContractDraft) -> str:
                 add(f"# {chunk}")
 
     return "\n".join(lines) + "\n"
+
+
+def _default_constant_reason(constant: ProposedConstant) -> str:
+    return (
+        f"The recording ended with {_humanise(constant.key)} showing "
+        f"'{constant.value}'."
+    )
+
+
+def _add_suggestions(add: Any, enrichment: Any) -> None:
+    """Write model suggestions as commented-out YAML.
+
+    Commented on purpose. A suggestion is not an observation, and the file
+    format should not let the two look alike.
+    """
+    suggestions = list(getattr(enrichment, "suggestions", []) or [])
+    rejected = list(getattr(enrichment, "rejected", []) or [])
+    if not suggestions and not rejected:
+        return
+
+    model = getattr(enrichment, "model", "") or "a model"
+    add("# " + "-" * 70)
+    add(f"# SUGGESTIONS FROM {model}")
+    add("#")
+    add("# These were NOT observed in the recording. A model proposed them, and")
+    add("# each one parsed and referenced only facts the recording established --")
+    add("# which makes them worth reading, not worth trusting.")
+    add("#")
+    add("# To accept one: move it into 'expected' or 'forbidden' and remove the")
+    add("# leading '# '. Nothing below is enforced until you do.")
+    add("#")
+
+    for suggestion in suggestions:
+        block = "forbidden" if suggestion.forbidden else "expected"
+        add(f"#   - id: {suggestion.id}          # -> {block}")
+        add(f"#     assert: '{suggestion.expression}'")
+        if suggestion.because:
+            add("#     because: >-")
+            for chunk in _wrap(suggestion.because, 62):
+                add(f"#       {chunk}")
+        add("#")
+
+    if rejected:
+        add(f"# {len(rejected)} further suggestion(s) were discarded automatically:")
+        for reason in rejected:
+            for chunk in _wrap(reason, 66):
+                add(f"#   {chunk}" if chunk == _wrap(reason, 66)[0] else f"#     {chunk}")
+    add("# " + "-" * 70)
+    add("")
 
 
 # ---------------------------------------------------------------------------

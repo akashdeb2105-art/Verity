@@ -121,6 +121,10 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_cmd.add_argument("--name", default="recorded_workflow")
     inspect_cmd.add_argument("--contract", help="write the proposed contract here")
     inspect_cmd.add_argument("--graph", help="write the WorkGraph here")
+    inspect_cmd.add_argument("--ai", action="store_true",
+                             help="ask a model for extra suggestions")
+    inspect_cmd.add_argument("--ai-provider")
+    inspect_cmd.add_argument("--ai-model")
     inspect_cmd.add_argument("--no-color", action="store_true")
     inspect_cmd.set_defaults(handler=cmd_inspect)
 
