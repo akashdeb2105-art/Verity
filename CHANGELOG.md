@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- A repository hygiene guard (`tests/security/test_repository_hygiene.py`) that
+  scans every tracked file for credential-shaped literals, tracked `.env` or key
+  files, CRLF in shell scripts, and scripts missing the executable bit. Secret
+  scanning matches the pattern rather than the validity, so a fake credential
+  written as a literal blocks a push exactly as a real one would — and the fix
+  at that point is a history rewrite rather than a commit.
 - `.gitattributes` pinning LF line endings. This repository is edited from
   Windows, where a shell script that silently acquires CRLF fails on Linux with
   an error that blames the interpreter rather than the newline.
@@ -18,6 +24,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `make check`.
 
 ### Changed
+- Credential-shaped test fixtures in the redaction suite are assembled at
+  runtime from fragments instead of being written as literals, so the suite can
+  still exercise Slack, GitHub, OpenAI-style, JWT and PEM shapes without the
+  repository carrying a string a scanner will reject.
 - The version is declared once, in `pyproject.toml`, and read back from
   distribution metadata. Previously four components carried their own literal
   and could have disagreed after a release.

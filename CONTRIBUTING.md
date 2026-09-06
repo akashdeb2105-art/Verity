@@ -34,6 +34,10 @@ be declined regardless of how useful it is.
    in tests, clearly labelled.
 7. **All fixture data is synthetic.** No real vendor, person, account or
    production data, anywhere.
+8. **No credential-shaped literals.** Secret scanning matches the pattern, not
+   the validity, so even a fake token blocks a push. Assemble such values at
+   runtime from fragments, as `tests/unit/test_redaction.py` does.
+   `tests/security/test_repository_hygiene.py` enforces this.
 
 ## Adding a dependency
 

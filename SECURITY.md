@@ -34,6 +34,8 @@ arguments — reachable from neither parsed page content nor model output.
 | Evidence cannot be altered undetected | Content addressing plus a merkle manifest; tampering with either fails | `tests/unit/test_evidence.py` |
 | The verifier cannot reach an executor | `import-linter` contract, declared before the executor packages exist | CI |
 | "I could not check" never becomes "it passed" | `INCONCLUSIVE` is a distinct verdict | `tests/integration/test_verification.py` |
+| The repository carries no credential-shaped literal | Every tracked file is scanned for token, key and JWT shapes | `tests/security/test_repository_hygiene.py` |
+| No `.env`, key or profile file is tracked | Name and suffix check over tracked files | `tests/security/test_repository_hygiene.py` |
 
 ## Scope
 
