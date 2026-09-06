@@ -1,0 +1,333 @@
+{
+  "apiVersion": "verity/v1",
+  "events": [
+    {
+      "document_ref": null,
+      "dom_hash": null,
+      "element": null,
+      "kind": "session_start",
+      "network": {},
+      "note": "teaching session started",
+      "screenshot_ref": null,
+      "seq": 1,
+      "title": null,
+      "ts": null,
+      "url": "http://sandbox/ui/inbox",
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {}
+    },
+    {
+      "document_ref": null,
+      "dom_hash": null,
+      "element": null,
+      "kind": "navigate",
+      "network": {},
+      "note": "navigation",
+      "screenshot_ref": null,
+      "seq": 2,
+      "title": null,
+      "ts": null,
+      "url": "http://sandbox/ui/inbox",
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {}
+    },
+    {
+      "document_ref": null,
+      "dom_hash": "djb2:eca5a45d",
+      "element": {
+        "css": [
+          "[data-testid=\"inbox-subject\"]"
+        ],
+        "input_type": null,
+        "label": null,
+        "name": null,
+        "role": null,
+        "tag": "td",
+        "testid": "inbox-subject",
+        "text": "Invoice INV-4471 for PO-2211",
+        "xpath": null
+      },
+      "kind": "click",
+      "network": {},
+      "note": "",
+      "screenshot_ref": null,
+      "seq": 3,
+      "title": "Inbox",
+      "ts": null,
+      "url": "http://sandbox/ui/inbox",
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {
+        "inbox-subject": "Invoice INV-4471 for PO-2211"
+      }
+    },
+    {
+      "document_ref": null,
+      "dom_hash": "djb2:eca5a45d",
+      "element": {
+        "css": [
+          "[data-testid=\"inbox-row\"] > td:nth-of-type(4) > a"
+        ],
+        "input_type": null,
+        "label": "INV-4471.pdf",
+        "name": "INV-4471.pdf",
+        "role": "link",
+        "tag": "a",
+        "testid": null,
+        "text": "INV-4471.pdf",
+        "xpath": null
+      },
+      "kind": "click",
+      "network": {},
+      "note": "",
+      "screenshot_ref": null,
+      "seq": 4,
+      "title": "Inbox",
+      "ts": null,
+      "url": "http://sandbox/ui/inbox",
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {
+        "inbox-subject": "Invoice INV-4471 for PO-2211"
+      }
+    },
+    {
+      "document_ref": null,
+      "dom_hash": null,
+      "element": null,
+      "kind": "navigate",
+      "network": {},
+      "note": "navigation",
+      "screenshot_ref": null,
+      "seq": 5,
+      "title": null,
+      "ts": null,
+      "url": "http://sandbox/ui/purchase-orders/PO-2211",
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {}
+    },
+    {
+      "document_ref": null,
+      "dom_hash": "djb2:8aa3b548",
+      "element": {
+        "css": [
+          "[data-testid=\"po-total\"]"
+        ],
+        "input_type": null,
+        "label": null,
+        "name": null,
+        "role": null,
+        "tag": "td",
+        "testid": "po-total",
+        "text": "14800.00",
+        "xpath": null
+      },
+      "kind": "click",
+      "network": {},
+      "note": "",
+      "screenshot_ref": null,
+      "seq": 6,
+      "title": "Purchase order",
+      "ts": null,
+      "url": "http://sandbox/ui/purchase-orders/PO-2211",
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {
+        "CURRENCY": "USD",
+        "NUMBER": "PO-2211",
+        "PO TOTAL": "14800.00",
+        "STATUS": "OPEN",
+        "VENDOR": "Acme Supplies",
+        "po-number": "PO-2211",
+        "po-status": "OPEN",
+        "po-total": "14800.00",
+        "po-vendor": "Acme Supplies"
+      }
+    },
+    {
+      "document_ref": null,
+      "dom_hash": "djb2:8aa3b548",
+      "element": {
+        "css": [
+          "[data-testid=\"po-vendor\"]"
+        ],
+        "input_type": null,
+        "label": null,
+        "name": null,
+        "role": null,
+        "tag": "td",
+        "testid": "po-vendor",
+        "text": "Acme Supplies",
+        "xpath": null
+      },
+      "kind": "click",
+      "network": {},
+      "note": "",
+      "screenshot_ref": null,
+      "seq": 7,
+      "title": "Purchase order",
+      "ts": null,
+      "url": "http://sandbox/ui/purchase-orders/PO-2211",
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {
+        "CURRENCY": "USD",
+        "NUMBER": "PO-2211",
+        "PO TOTAL": "14800.00",
+        "STATUS": "OPEN",
+        "VENDOR": "Acme Supplies",
+        "po-number": "PO-2211",
+        "po-status": "OPEN",
+        "po-total": "14800.00",
+        "po-vendor": "Acme Supplies"
+      }
+    },
+    {
+      "document_ref": null,
+      "dom_hash": null,
+      "element": null,
+      "kind": "navigate",
+      "network": {},
+      "note": "navigation",
+      "screenshot_ref": null,
+      "seq": 8,
+      "title": null,
+      "ts": null,
+      "url": "http://sandbox/ui/bills",
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {}
+    },
+    {
+      "document_ref": null,
+      "dom_hash": "djb2:3537dc68",
+      "element": {
+        "css": [
+          "[data-testid=\"bill-amount\"]"
+        ],
+        "input_type": null,
+        "label": null,
+        "name": null,
+        "role": null,
+        "tag": "td",
+        "testid": "bill-amount",
+        "text": "14800.00",
+        "xpath": null
+      },
+      "kind": "click",
+      "network": {},
+      "note": "",
+      "screenshot_ref": null,
+      "seq": 9,
+      "title": "Ledger",
+      "ts": null,
+      "url": "http://sandbox/ui/bills",
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {
+        "bill-amount": "14800.00",
+        "bill-ref": "INV-4471",
+        "bill-status": "DRAFT",
+        "bill-vendor": "Acme Supplies",
+        "submit-bill": "Create Bill"
+      }
+    },
+    {
+      "document_ref": null,
+      "dom_hash": "djb2:3537dc68",
+      "element": {
+        "css": [
+          "[data-testid=\"bill-status\"]"
+        ],
+        "input_type": null,
+        "label": null,
+        "name": null,
+        "role": null,
+        "tag": "td",
+        "testid": "bill-status",
+        "text": "DRAFT",
+        "xpath": null
+      },
+      "kind": "click",
+      "network": {},
+      "note": "",
+      "screenshot_ref": null,
+      "seq": 10,
+      "title": "Ledger",
+      "ts": null,
+      "url": "http://sandbox/ui/bills",
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {
+        "bill-amount": "14800.00",
+        "bill-ref": "INV-4471",
+        "bill-status": "DRAFT",
+        "bill-vendor": "Acme Supplies",
+        "submit-bill": "Create Bill"
+      }
+    },
+    {
+      "document_ref": null,
+      "dom_hash": "djb2:3537dc68",
+      "element": {
+        "css": [
+          "[data-testid=\"submit-bill\"]"
+        ],
+        "input_type": "submit",
+        "label": "Create Bill",
+        "name": "Create Bill",
+        "role": "button",
+        "tag": "button",
+        "testid": "submit-bill",
+        "text": "Create Bill",
+        "xpath": null
+      },
+      "kind": "click",
+      "network": {},
+      "note": "",
+      "screenshot_ref": null,
+      "seq": 11,
+      "title": "Ledger",
+      "ts": null,
+      "url": "http://sandbox/ui/bills",
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {
+        "bill-amount": "14800.00",
+        "bill-ref": "INV-4471",
+        "bill-status": "DRAFT",
+        "bill-vendor": "Acme Supplies",
+        "submit-bill": "Create Bill"
+      }
+    },
+    {
+      "document_ref": null,
+      "dom_hash": null,
+      "element": null,
+      "kind": "session_end",
+      "network": {},
+      "note": "teaching session ended",
+      "screenshot_ref": null,
+      "seq": 12,
+      "title": null,
+      "ts": null,
+      "url": null,
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {}
+    }
+  ],
+  "kind": "CaptureSession",
+  "metadata": {
+    "browser": "chromium",
+    "capture_version": "1.0",
+    "finished_at": null,
+    "redaction_applied": true,
+    "session_id": "sess_apfixture01",
+    "start_url": "http://sandbox/ui/inbox",
+    "started_at": null
+  }
+}
