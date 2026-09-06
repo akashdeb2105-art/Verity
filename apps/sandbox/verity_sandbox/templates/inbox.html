@@ -1,0 +1,18 @@
+{% extends "_base.html" %}
+{% block title %}Inbox{% endblock %}
+{% block heading %}Inbox{% endblock %}
+{% block content %}
+<table>
+  <thead><tr><th>Received</th><th>From</th><th>Subject</th><th>Attachment</th></tr></thead>
+  <tbody>
+  {% for m in messages %}
+    <tr data-testid="inbox-row" data-message-id="{{ m.id }}">
+      <td>{{ m.received_at }}</td>
+      <td>{{ m.sender }}</td>
+      <td data-testid="inbox-subject">{{ m.subject }}</td>
+      <td>{% if m.attachment %}<a href="/docs/invoices/{{ m.attachment }}">{{ m.attachment }}</a>{% else %}—{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

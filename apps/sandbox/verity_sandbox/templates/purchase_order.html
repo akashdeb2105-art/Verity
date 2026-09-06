@@ -1,0 +1,17 @@
+{% extends "_base.html" %}
+{% block title %}Purchase order{% endblock %}
+{% block heading %}Purchase orders{% endblock %}
+{% block content %}
+{% for po in orders %}
+<table data-testid="purchase-order" data-po-number="{{ po.number }}">
+  <tbody>
+    <tr><th>Number</th><td data-testid="po-number">{{ po.number }}</td></tr>
+    <tr><th>Vendor</th><td data-testid="po-vendor">{{ po.vendor }}</td></tr>
+    <tr><th>{{ labels.po_total }}</th><td data-testid="po-total">{{ po.total }}</td></tr>
+    <tr><th>Currency</th><td>{{ po.currency }}</td></tr>
+    <tr><th>Status</th><td data-testid="po-status">{{ po.status }}</td></tr>
+  </tbody>
+</table>
+<br>
+{% endfor %}
+{% endblock %}

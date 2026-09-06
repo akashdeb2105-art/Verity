@@ -1,0 +1,22 @@
+{% extends "_base.html" %}
+{% block title %}Ledger{% endblock %}
+{% block heading %}Ledger — bills{% endblock %}
+{% block content %}
+<table>
+  <thead>
+    <tr><th>ID</th><th>Vendor</th><th>Ref</th><th>{{ labels.bill_amount }}</th><th>{{ labels.bill_status }}</th></tr>
+  </thead>
+  <tbody>
+  {% for b in bills %}
+    <tr data-testid="bill-row" data-bill-id="{{ b.id }}">
+      <td>{{ b.id }}</td>
+      <td data-testid="bill-vendor">{{ b.vendor }}</td>
+      <td data-testid="bill-ref">{{ b.ref }}</td>
+      <td data-testid="bill-amount">{{ b.amount }}</td>
+      <td data-testid="bill-status">{{ b.status }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<button data-testid="submit-bill">{{ labels.submit }}</button>
+{% endblock %}
