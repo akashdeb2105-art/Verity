@@ -6,6 +6,48 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+Milestone **M1 — teach and compile**. Verity can now watch someone do a job
+once and propose the contract itself.
+
+**Capture** (`verity_capture`)
+- A controlled Chromium teaching session with an ephemeral profile and an
+  optional deny-by-default domain allowlist.
+- Redaction at the point of capture. A password is never placed into a
+  recording at all: the first check runs inside the page, so the value does not
+  travel to Verity, and a second content pass catches a token pasted into an
+  ordinary text box. Thirty adversarial field shapes are covered by tests, and
+  so are fifteen ordinary business fields — over-redaction makes a recording
+  useless and is treated as a failure too.
+- Playwright is imported lazily, so the event model, the redaction layer and
+  the session reader work on a machine with no browser.
+
+**Compiler** (`verity_compiler`)
+- Raw events to semantic steps, then to a WorkGraph and a proposed Outcome
+  Contract — with **no model call**. Every proposal is traceable to a value
+  that literally appeared in the recording. See ADR-0009.
+- Inputs from identifiers that appear in both a page address and its text;
+  comparisons from a value seen in two different systems; end states from a
+  short state word the person deliberately clicked. A number that was read is
+  never turned into a constant.
+- The generated file opens with what a single demonstration cannot establish —
+  duplicates, forbidden outcomes, branches, tolerances — and names any document
+  that was opened but not read.
+
+**CLI**
+- `verity teach` records a demonstration; `verity inspect` compiles a saved one.
+
+**Boundaries**
+- Two new import-linter contracts: the compiler and the verifier are siblings
+  and neither may import the other, and capture may not import anything that
+  judges what it recorded.
+
+The whole loop is tested end to end against the sandbox: the auto-proposed
+contract passes on a clean run and catches a duplicate bill. The honest gap is
+asserted too — it does *not* catch the flagship invoice error, because the
+person opened the PDF and Verity could not read inside it.
+
 ### Changed
 - Dependency floors raised by Dependabot and verified against the upgraded
   toolchain: pytest 9, mypy 2.3, ruff 0.16, import-linter 2.15, plus httpx

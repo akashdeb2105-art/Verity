@@ -18,10 +18,11 @@ VERIFIABLE AUTOMATION
 Because the contract and the evidence layer are independent of the executor,
 Verity can verify automation it did not author and does not run.
 
-> **Status: early.** This is milestone M0 — the deterministic sandbox, the
-> schema, the evidence store and the verifier. Capture, compilation and the
-> execution runtime are not built yet. Nothing below is aspirational: every
-> command runs today.
+> **Status: early.** Milestones M0 and M1 — the deterministic sandbox, the
+> schema, the evidence store, the verifier, and recording a demonstration to
+> propose a contract. The execution runtime, trace adapters and scheduled
+> canaries are not built yet. Nothing below is aspirational: every command runs
+> today.
 
 ---
 
@@ -174,6 +175,8 @@ as a check on a pull request from a fork.
 
 | Command | What it does |
 | --- | --- |
+| `verity teach` | Record a demonstration and propose a contract |
+| `verity inspect` | Compile a saved recording |
 | `verity verify` | Evaluate one contract, live or against a trace |
 | `verity eval` | Evaluate a whole suite — the CI entry point |
 | `verity lint` | Type-check contracts without reading anything |
@@ -201,13 +204,28 @@ anywhere in this repository.
 
 ---
 
+## Teaching it a workflow
+
+```bash
+verity teach --url http://127.0.0.1:8099/ui/inbox --name invoice_to_po \
+  --contract contracts/invoice_to_po.draft.yaml
+```
+
+Do the job once. Verity proposes the contract from what it saw — **with no
+model call**. Every assertion traces back to a value that literally appeared
+twice during the recording, which is why what it proposes can be trusted, and
+also why it proposes less than a person would.
+
+The draft says so itself. A single successful run cannot show duplicates,
+forbidden outcomes, branches or tolerances, and the file opens by listing
+exactly that. See [docs/teaching](docs/teaching/recording-a-demonstration.md).
+
 ## What is not built yet
 
 Honesty matters more here than a longer feature list. Verity does **not** yet
-have: workflow capture, a compiler, an execution runtime, trace adapters for
-Browser Use / Stagehand / Skyvern, scheduled canaries, a web application, or a
-web site. Those are later milestones. `docs/architecture/overview.md` says
-where each one goes.
+have: an execution runtime, trace adapters for Browser Use / Stagehand /
+Skyvern, scheduled canaries, a web application, or a web site. Those are later
+milestones. `docs/architecture/overview.md` says where each one goes.
 
 ---
 

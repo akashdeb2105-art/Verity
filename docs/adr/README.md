@@ -14,3 +14,4 @@ the cost we accepted.
 | [0006](0006-one-distribution-many-modules.md) | One distribution, many modules |
 | [0007](0007-no-database-in-m0.md) | No database in M0 |
 | [0008](0008-dependency-policy.md) | Dependency policy |
+| [0009](0009-deterministic-compilation.md) | The compiler proposes deterministically |

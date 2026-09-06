@@ -23,6 +23,9 @@
 the document extractor — and nothing that executes a workflow. There is no
 import path from the verifier to a browser, an agent or a model client.
 
+The compiler and the verifier are siblings for the same reason: a contract that
+could only be checked by the thing that wrote it would prove nothing.
+
 This is enforced by `import-linter` (`.importlinter`, run by `make imports`
 and in CI), and the contract names `verity_runtime`, `verity_capture` and
 `verity_compiler` even though none of them exists yet. Declaring the boundary
@@ -32,7 +35,9 @@ import at a time.
 ```
 verity_cli
     ↓
-verity_verifier
+verity_verifier | verity_compiler     (siblings: neither may import the other)
+    ↓
+verity_capture
     ↓
 verity_connectors | verity_extract | verity_evidence
     ↓
@@ -51,6 +56,8 @@ verity_sandbox         (a fixture: imports no Verity logic at all)
 | `verity_extract` | Deterministic document extraction with provenance. |
 | `verity_verifier` | Parsing, type checking, fact resolution, evaluation, localization. |
 | `verity_cli` | The `verity` command. No business logic. |
+| `verity_capture` | Recording a demonstration, with redaction at the point of capture. |
+| `verity_compiler` | Recording → WorkGraph → proposed Outcome Contract. Deterministic. |
 | `verity_sandbox` | A deterministic accounts-payable fixture. |
 
 One installable distribution, seven top-level modules. Distribution packaging
@@ -72,8 +79,6 @@ per execution.
 
 | Component | Milestone | Where it goes |
 | --- | --- | --- |
-| Capture (`verity_capture`) | M1 | Controlled Chromium session, CDP, redaction at source |
-| Compiler (`verity_compiler`) | M1 | Raw events → WorkGraph → proposed Outcome Contract |
 | Trace adapters (`verity_adapters`) | M1 | Playwright · Browser Use · Stagehand · Skyvern → `verity-trace/v1` |
 | Runtime (`verity_runtime`) | M2 | Tiered execution, risk policy, approval, the single side-effect path |
 | Canary + scheduler | M3 | Postgres job table, notifications |

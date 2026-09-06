@@ -31,6 +31,9 @@ arguments — reachable from neither parsed page content nor model output.
 | A contract cannot construct Python objects | `yaml.safe_load` only | `tests/security/test_invariants.py` |
 | Adversarial text in a document or page changes nothing | Injection perturbation, verified alone and alongside a real fault | `tests/security/test_invariants.py` |
 | Secrets are never persisted | Redaction runs before any evidence is written, fails closed on unknown fields | `tests/unit/test_redaction.py` |
+| A recording never carries a credential | Redaction at the point of capture: inside the page, then on content. 30 adversarial field shapes | `tests/unit/test_capture_redaction.py` |
+| Redaction does not destroy business data | 15 ordinary field names asserted to survive | `tests/unit/test_capture_redaction.py` |
+| The compiler makes no model call | No provider SDK reachable; checked in a fresh interpreter | `tests/security/test_invariants.py` |
 | Evidence cannot be altered undetected | Content addressing plus a merkle manifest; tampering with either fails | `tests/unit/test_evidence.py` |
 | The verifier cannot reach an executor | `import-linter` contract, declared before the executor packages exist | CI |
 | "I could not check" never becomes "it passed" | `INCONCLUSIVE` is a distinct verdict | `tests/integration/test_verification.py` |
