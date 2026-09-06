@@ -1,0 +1,18 @@
+# Default owner for everything in this repository.
+*                       @akashdeb2105-art
+
+# Areas where a change carries an architectural or security consequence.
+# These are called out so a reviewer knows to check the invariant, not just
+# the diff.
+
+# The verifier must stay independent of any executor, and deterministic.
+/packages/verifier/     @akashdeb2105-art
+/packages/schema/       @akashdeb2105-art
+
+# Evidence integrity and redaction.
+/packages/evidence/     @akashdeb2105-art
+
+# The declared architectural boundaries themselves.
+/.importlinter          @akashdeb2105-art
+/docs/adr/              @akashdeb2105-art
+/SECURITY.md            @akashdeb2105-art

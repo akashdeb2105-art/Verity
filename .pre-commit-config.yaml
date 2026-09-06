@@ -1,0 +1,41 @@
+# Runs the fast half of `make check` before every commit. It is deliberately a
+# subset: the full test suite belongs in CI, not in the path of every commit.
+#
+#   pip install pre-commit && pre-commit install
+
+default_language_version:
+  python: python3
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml
+        exclude: ^\.github/ISSUE_TEMPLATE/  # GitHub form schema, not plain YAML
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: [--branch, main]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.13.3
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  - repo: local
+    hooks:
+      - id: contracts-lint
+        name: type-check Outcome Contracts
+        entry: python -m verity_cli.main lint examples/contracts
+        language: system
+        pass_filenames: false
+        files: ^examples/contracts/.*\.ya?ml$

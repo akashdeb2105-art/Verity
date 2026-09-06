@@ -1,0 +1,38 @@
+name: Proposal
+description: Propose a change to how Verity works.
+labels: [proposal]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What can you not do today? Please describe the situation rather than
+        the feature — the best solution is often not the one first imagined.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to happen
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Does this touch an invariant?
+      description: >
+        Tick anything this proposal would change. Ticking one is not a
+        rejection — it means the discussion needs a decision record.
+      options:
+        - label: It would require a model call during verification
+        - label: It would make the verifier depend on an executor
+        - label: It would let trace, page or model content influence a verdict
+        - label: It would add a runtime dependency

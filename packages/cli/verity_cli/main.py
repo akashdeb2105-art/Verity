@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from verity_schema import Trace, Verdict, VerificationReport, worst
+from verity_schema import Trace, Verdict, VerificationReport, __version__, worst
 from verity_verifier import (
     ContractError,
     VerifyOptions,
@@ -68,7 +68,9 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="verity",
         description="Your AI agent says DONE. Verity checks whether it actually did.",
     )
-    parser.add_argument("--version", action="version", version="verity 0.0.1")
+    parser.add_argument(
+        "--version", action="version", version=f"verity {__version__}"
+    )
     sub = parser.add_subparsers(dest="command")
 
     verify_cmd = sub.add_parser(

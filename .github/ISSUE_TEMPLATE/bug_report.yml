@@ -1,0 +1,61 @@
+name: Bug report
+description: Something behaves differently from what is documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report security issues here. Use a private advisory
+        instead: https://github.com/akashdeb2105-art/Verity/security/advisories/new
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you observe, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >
+        The exact commands. If you can reproduce it against the bundled sandbox
+        (`make verify`, plus any `/admin/perturb/...` you applied), that is by
+        far the most useful form.
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: verdict
+    attributes:
+      label: Verdict reported
+      options: [PASS, FAIL, DRIFT, INCONCLUSIVE, "not applicable"]
+    validations:
+      required: true
+
+  - type: textarea
+    id: report
+    attributes:
+      label: Report output
+      description: >
+        Paste the CLI output, or attach the evidence bundle from
+        `--bundle ./evidence`. Please check it for anything sensitive first.
+      render: text
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `verity --version`.
+    validations:
+      required: true
+
+  - type: input
+    id: python
+    attributes:
+      label: Python version and OS
+    validations:
+      required: true

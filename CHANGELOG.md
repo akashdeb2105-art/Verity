@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- `.gitattributes` pinning LF line endings. This repository is edited from
+  Windows, where a shell script that silently acquires CRLF fails on Linux with
+  an error that blames the interpreter rather than the newline.
+- PEP 561 `py.typed` markers on every module, so downstream consumers get our
+  type information instead of falling back to `Any`.
+- Contributor scaffolding: code of conduct, pull request template with an
+  invariant checklist, structured issue forms, `CODEOWNERS`, Dependabot, an
+  `.editorconfig`, and a pre-commit configuration running the fast half of
+  `make check`.
+
+### Changed
+- The version is declared once, in `pyproject.toml`, and read back from
+  distribution metadata. Previously four components carried their own literal
+  and could have disagreed after a release.
+
 ## [0.0.1] — 2026-09-06
 
 Milestone **M0 — verifier foundation**. The first release that can prove or

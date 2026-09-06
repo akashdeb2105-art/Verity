@@ -3,11 +3,15 @@
 ## Getting set up
 
 ```bash
-make install     # Python 3.10+, no API key required
-make check       # lint · types · architectural boundaries · tests
+make install       # Python 3.10+, no API key required
+make check         # lint · types · architectural boundaries · tests
+
+pre-commit install # optional: runs the fast checks before each commit
 ```
 
 `make check` is exactly what CI runs. If it passes locally it will pass there.
+
+This project follows the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## The rules that are not negotiable
 
@@ -69,5 +73,16 @@ Inspect the diff before committing. Keep commits logically scoped.
 
 ## Pull requests
 
+The [pull request template](.github/pull_request_template.md) asks you to
+confirm each invariant above. Ticking a box you have not checked is worse than
+leaving it blank and saying so.
+
 Say what changed and why. If behaviour changed, show the before and after. If
 you touched a security invariant, say which one and how the tests cover it.
+
+## Releasing
+
+The version is declared once, in `pyproject.toml`, and read back from
+distribution metadata by `verity_schema._version`. Nothing else hardcodes it.
+To cut a release: move the `CHANGELOG.md` entries out of *Unreleased*, bump the
+version in `pyproject.toml`, tag `vX.Y.Z`.

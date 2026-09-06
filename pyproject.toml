@@ -59,7 +59,10 @@ Source = "https://github.com/akashdeb2105-art/Verity"
 # matters (verifier must not depend on any executor) is enforced by
 # import-linter in CI, not by distribution packaging. See ADR-0006.
 # ---------------------------------------------------------------------------
+# PEP 561: every module ships a py.typed marker, so downstream consumers get
+# our type information instead of falling back to Any.
 [tool.hatch.build.targets.wheel]
+artifacts = ["**/py.typed"]
 packages = [
   "packages/schema/verity_schema",
   "packages/evidence/verity_evidence",

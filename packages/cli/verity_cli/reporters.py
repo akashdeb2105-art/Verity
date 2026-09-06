@@ -6,12 +6,12 @@ import json
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from verity_schema import Severity, Verdict, VerificationReport
+from verity_schema import Severity, Verdict, VerificationReport, __version__
 
 
 def write_json(reports: list[VerificationReport], path: str | Path) -> None:
     payload = {
-        "verity": "0.0.1",
+        "verity": __version__,
         "verdict": _overall(reports).value,
         "reports": [r.model_dump(mode="json", by_alias=True) for r in reports],
     }

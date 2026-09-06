@@ -9,6 +9,8 @@ There are no model calls here. A promoted verification costs nothing per run,
 which is the only reason continuous verification is affordable at all.
 """
 
+from verity_schema import __version__
+
 from .divergence import EnvironmentChange, detect_environment_changes, localize
 from .errors import ContractError, ContractLoadError, ContractTypeError
 from .expr import EvaluationError, ExpressionSyntaxError, parse, render
@@ -28,8 +30,6 @@ from .verify import (
     verify,
     verify_checked,
 )
-
-__version__ = "0.0.1"
 
 __all__ = [
     "CheckedAssertion", "CheckedContract", "ContractError", "ContractLoadError",

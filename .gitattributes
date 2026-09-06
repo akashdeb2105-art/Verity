@@ -1,0 +1,36 @@
+# Normalise line endings. This repository is routinely edited from Windows,
+# and a shell script that acquires CRLF fails on Linux with an error that
+# blames the interpreter rather than the newline. Pin it here rather than
+# relying on every contributor's core.autocrlf.
+
+* text=auto eol=lf
+
+*.sh          text eol=lf
+Makefile      text eol=lf
+*.py          text eol=lf
+*.pyi         text eol=lf
+*.toml        text eol=lf
+*.cfg         text eol=lf
+*.ini         text eol=lf
+*.yaml        text eol=lf
+*.yml         text eol=lf
+*.json        text eol=lf
+*.md          text eol=lf
+*.html        text eol=lf
+*.ts          text eol=lf
+*.importlinter text eol=lf
+
+# Binary: never normalise, never diff as text.
+*.pdf         binary
+*.png         binary
+*.jpg         binary
+*.webp        binary
+*.ico         binary
+*.woff        binary
+*.woff2       binary
+
+# Generated or vendored files: keep them out of language statistics and
+# collapse them in review diffs.
+packages/schema/ts/*         linguist-generated=true
+tests/cassettes/*.json       linguist-generated=true -diff
+LICENSE                      linguist-vendored=true

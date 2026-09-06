@@ -32,6 +32,22 @@ from .state import SandboxState, build_seed_state
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 
+def _sandbox_version() -> str:
+    """Read the distribution version without importing anything from Verity.
+
+    The sandbox is a fixture. Keeping it free of Verity imports is enforced by
+    an import-linter contract, so it resolves its own version rather than
+    borrowing the schema package's.
+    """
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as distribution_version
+
+    try:
+        return distribution_version("verity")
+    except PackageNotFoundError:
+        return "0.0.0+unknown"
+
+
 class Sandbox:
     """Holds the mutable state and the list of applied perturbations."""
 
@@ -63,7 +79,7 @@ def create_app(seed: int = 1) -> FastAPI:
     app = FastAPI(
         title="Verity AP sandbox",
         description="Deterministic synthetic accounts-payable fixture.",
-        version="0.0.1",
+        version=_sandbox_version(),
     )
     sandbox = Sandbox(seed)
     app.state.sandbox = sandbox
