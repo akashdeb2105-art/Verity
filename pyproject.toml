@@ -23,7 +23,7 @@ classifiers = [
 # Every entry below is load-bearing for M0. No LLM SDK appears here, by design:
 # the verifier is deterministic and makes zero model calls.
 dependencies = [
-  "pydantic>=2.7,<3",       # typed artifact models; the schema IS the product
+  "pydantic>=2.13.5,<3",       # typed artifact models; the schema IS the product
   "PyYAML>=6.0,<7",         # contracts are git-friendly YAML
   "httpx>=0.28.1,<1",       # connector transport
 ]
