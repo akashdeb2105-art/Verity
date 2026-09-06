@@ -14,6 +14,7 @@ root_packages =
     verity_verifier
     verity_capture
     verity_compiler
+    verity_ai
     verity_cli
     verity_sandbox
 
@@ -26,8 +27,23 @@ forbidden_modules =
     verity_runtime
     verity_capture
     verity_compiler
+    verity_ai
     verity_cli
     verity_sandbox
+allow_indirect_imports = False
+
+[importlinter:contract:verification-is-deterministic]
+name = The verifier must never reach a model provider
+type = forbidden
+source_modules =
+    verity_verifier
+forbidden_modules =
+    verity_ai
+    openai
+    anthropic
+    cohere
+    litellm
+    langchain
 allow_indirect_imports = False
 
 [importlinter:contract:schema-is-a-leaf]
@@ -42,6 +58,7 @@ forbidden_modules =
     verity_verifier
     verity_capture
     verity_compiler
+    verity_ai
     verity_cli
     verity_sandbox
 
@@ -52,9 +69,14 @@ layers =
     verity_cli
     verity_verifier | verity_compiler
     verity_capture
+    verity_ai
     verity_connectors | verity_extract | verity_evidence
     verity_schema
 
+# verity_ai sits BELOW the verifier in these layers, and the forbidden contract
+# above stops the verifier reaching it at all. A model may help author a
+# contract; it may never help decide whether one passed.
+#
 # 'verity_verifier | verity_compiler' places them side by side deliberately:
 # neither may import the other. The compiler proposes contracts; the verifier
 # evaluates them. Coupling the two would mean a contract could only be checked
