@@ -1,0 +1,133 @@
+# Invoice-to-PO verification.
+#
+# Compares an invoice against its purchase order and checks that the resulting
+# bill was staged, not posted.
+#
+# This is NOT three-way matching. Goods receipts exist in the sandbox but are
+# not compared here, and calling this a three-way match would be inaccurate.
+#
+# Run it against the sandbox:
+#   verity verify --contract examples/contracts/invoice_to_po.yaml --live \
+#     --input invoice_number=INV-4471 --input po_number=PO-2211
+#
+# Style note: assertion expressions are single-quoted. A bare ': ' inside a
+# YAML scalar starts a mapping, so keyword arguments use '=' -- both 'tolerance
+# = 0.01' and 'tolerance: 0.01' parse, but '=' is the YAML-safe form.
+
+apiVersion: verity/v1
+kind: OutcomeContract
+
+metadata:
+  name: invoice_to_po
+  version: 0.1.0
+  description: An invoice is reconciled against its purchase order and staged as a draft bill.
+  owner: ap-team
+  risk: MEDIUM
+
+inputs:
+  invoice_number: { type: string, required: true }
+  po_number: { type: string, required: true }
+
+# Sources are roles, not connector instances. Bindings are supplied at
+# verification time, which is why this file runs unchanged against the
+# sandbox, a staging system, or production.
+sources:
+  po_system: { kind: connector, capability: purchase_orders }
+  ledger: { kind: connector, capability: accounting }
+  invoice_doc: { kind: document, format: pdf }
+
+facts:
+  # The purchase order, from the system of record, over its API.
+  - id: po
+    source: po_system
+    read: { resource: purchase_order, key: '{{ inputs.po_number }}' }
+    select: [number, vendor, currency, total, status]
+    expect_cardinality: 1
+
+  # The invoice itself, extracted deterministically from the PDF. Every field
+  # carries the page and bounding box it came from.
+  - id: doc
+    source: invoice_doc
+    document: '/docs/invoices/{{ inputs.invoice_number }}.pdf'
+    extract:
+      total: { type: decimal, hint: 'amount due / grand total', expect_anchor: 'total due' }
+      vendor: { type: string, hint: 'supplier name' }
+      number: { type: string, hint: 'invoice number' }
+      po_ref: { type: string, hint: 'purchase order reference' }
+
+  # The staged bill, read back through the ledger's API -- a different channel
+  # from the UI a browser agent would have written through.
+  - id: bill
+    source: ledger
+    read: { resource: bill, query: { ref: '{{ inputs.invoice_number }}' } }
+    select: [id, vendor, ref, number, amount, currency, status]
+    expect_cardinality: 1
+
+  # Every bill carrying this invoice number, used to prove exactly one exists.
+  - id: dup_scan
+    source: ledger
+    read: { resource: bills, query: { number: '{{ inputs.invoice_number }}' } }
+    select: [id, vendor, number]
+
+  # Ledger events, read by the forbidden block below.
+  - id: ledger_events
+    source: ledger
+    read: { resource: events, query: { ref: '{{ inputs.invoice_number }}' } }
+    select: [id, kind, ref, at]
+
+expected:
+  - id: po_reference_present
+    assert: 'exists(doc.po_ref) and doc.po_ref ~= inputs.po_number'
+    because: The invoice must reference the purchase order it is billing against.
+
+  - id: doc_vendor_match
+    assert: 'doc.vendor ~= po.vendor'
+    because: The invoice must come from the vendor named on the purchase order.
+
+  - id: vendor_match
+    assert: 'bill.vendor ~= po.vendor'
+    because: The bill must be raised against the vendor named on the purchase order.
+
+  - id: amount_match
+    assert: 'within(doc.total, po.total, tolerance = 0.01)'
+    because: The invoiced amount must match the purchase order within one cent.
+
+  - id: amount_persisted
+    assert: 'within(bill.amount, doc.total, tolerance = 0.01)'
+    channel: independent
+    because: What was written to the ledger must equal what the invoice actually says.
+
+  - id: currency_match
+    assert: 'po.currency == bill.currency'
+    because: A matching number in the wrong currency is not a match.
+
+  - id: no_duplicate
+    assert: 'count(dup_scan) <= 1'
+    because: Duplicate bills are how the same invoice gets paid twice.
+
+  - id: ledger_staged
+    assert: 'bill.status == "DRAFT"'
+    channel: independent
+    because: The bill must be staged for human review, never posted automatically.
+
+# Negative space. Written as negative assertions that must hold, and often more
+# valuable than the positive checks.
+forbidden:
+  - id: no_payment
+    assert: 'none(ledger_events, kind == "payment")'
+    because: Verity never pays. A payment event here means something else did.
+
+  - id: no_deletion
+    assert: 'none(ledger_events, kind == "delete")'
+    because: Nothing in this workflow should ever delete a ledger record.
+
+budgets:
+  duration_ms: 120000
+  actions: 40
+  model_calls: 0        # verification is deterministic; enforced, not advisory
+  cost_usd: 0.0
+
+on_failure:
+  halt: true
+  require_human: true
+  notify: [webhook]
