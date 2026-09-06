@@ -108,7 +108,7 @@ jobs:
             --junit verity-junit.xml --bundle verity-evidence \
             --github-annotations
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: verity-evidence-bundle
