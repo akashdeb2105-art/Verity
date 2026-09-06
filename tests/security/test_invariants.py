@@ -15,6 +15,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERIFIER_SRC = REPO_ROOT / "packages" / "verifier" / "verity_verifier"
+CAPTURE_SRC = REPO_ROOT / "packages" / "capture" / "verity_capture"
+COMPILER_SRC = REPO_ROOT / "packages" / "compiler" / "verity_compiler"
 
 PROVIDER_MODULES = (
     "openai", "anthropic", "cohere", "google.generativeai", "litellm",
@@ -70,16 +72,99 @@ def test_the_verifier_source_contains_no_dynamic_execution() -> None:
 
 
 @pytest.mark.security()
-def test_the_verifier_cannot_import_an_executor() -> None:
-    """The portability boundary, checked at runtime as well as by import-linter."""
+def test_the_compiler_makes_no_model_call() -> None:
+    """The compiler proposes contracts deterministically.
+
+    A model may later improve the wording of a proposal. It does not get to
+    decide what is checked: a wrong proposed assertion is worse than a missing
+    one, because a person may trust it.
+    """
+    import subprocess
     import sys
 
-    import verity_verifier
+    probe = (
+        "import verity_compiler, sys;"
+        f"print(','.join(sorted(m for m in sys.modules if m in {set(PROVIDER_MODULES)!r})))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=60
+    )
+    assert result.stdout.strip() == "", (
+        f"the compiler imported a model provider: {result.stdout.strip()}"
+    )
 
-    modules = [m for m in sys.modules if m.startswith("verity_")]
-    assert not any(m.startswith(("verity_runtime", "verity_capture", "verity_compiler"))
-                   for m in modules)
-    assert verity_verifier.__version__
+
+@pytest.mark.security()
+def test_neither_capture_nor_the_compiler_executes_anything_dynamically() -> None:
+    import ast
+
+    forbidden = {"eval", "exec", "compile", "__import__", "globals", "locals", "vars"}
+    offenders: list[str] = []
+    for root in (CAPTURE_SRC, COMPILER_SRC):
+        for path in sorted(root.rglob("*.py")):
+            tree = ast.parse(path.read_text("utf-8"), filename=str(path))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id in forbidden
+                ):
+                    offenders.append(
+                        f"{path.relative_to(REPO_ROOT)}:{node.lineno}: {node.func.id}()"
+                    )
+    assert offenders == [], f"dynamic execution found: {offenders}"
+
+
+@pytest.mark.security()
+def test_capture_can_be_imported_without_a_browser() -> None:
+    """The event model, the redaction layer and the reader must not need one.
+
+    It is why the compiler's tests need no Chromium, and it keeps the browser
+    at the edge of the system rather than inside it.
+    """
+    import verity_capture
+
+    assert "BrowserRecorder" in verity_capture.__all__
+    assert "playwright" not in __import__("sys").modules
+
+
+@pytest.mark.security()
+def test_a_recording_never_carries_a_password() -> None:
+    """Checked on the committed fixture, which is a real browser recording."""
+    import json
+
+    fixture = (
+        REPO_ROOT / "tests" / "fixtures" / "sessions" / "ap_invoice_to_po.session.json"
+    )
+    text = json.dumps(json.loads(fixture.read_text("utf-8"))).lower()
+    for leaked in ("password", "hunter2", "secret", "authorization"):
+        assert leaked not in text or "[redacted]" in text
+
+
+@pytest.mark.security()
+def test_the_verifier_cannot_import_an_executor() -> None:
+    """The portability boundary, checked at runtime as well as by import-linter.
+
+    Run in a fresh interpreter on purpose. Inspecting this process's
+    ``sys.modules`` would only prove which tests happened to run first -- and
+    an earlier version of this test did exactly that, passing until another
+    test imported the compiler before it.
+    """
+    import subprocess
+    import sys
+
+    probe = (
+        "import verity_verifier, sys;"
+        "leaked=[m for m in sys.modules if m.startswith(('verity_runtime',"
+        "'verity_capture','verity_compiler','verity_cli','verity_sandbox'))];"
+        "print(','.join(sorted(leaked)))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=60
+    )
+    assert result.stdout.strip() == "", (
+        f"the verifier pulled in an executor package: {result.stdout.strip()}"
+    )
 
 
 @pytest.mark.security()
