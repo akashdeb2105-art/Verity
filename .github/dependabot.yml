@@ -1,3 +1,6 @@
+# Note: no `labels:` key. Dependabot only applies labels that already exist in
+# the repository, and warns on every pull request when a named label is
+# missing. Create a `dependencies` label first if you want them back.
 version: 2
 updates:
   - package-ecosystem: pip
@@ -6,7 +9,6 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
-    labels: [dependencies]
     commit-message:
       prefix: "chore(deps)"
     groups:
@@ -19,6 +21,5 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    labels: [dependencies]
     commit-message:
       prefix: "chore(ci)"

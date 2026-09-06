@@ -25,18 +25,18 @@ classifiers = [
 dependencies = [
   "pydantic>=2.7,<3",       # typed artifact models; the schema IS the product
   "PyYAML>=6.0,<7",         # contracts are git-friendly YAML
-  "httpx>=0.28.1,<1",         # connector transport
+  "httpx>=0.28.1,<1",       # connector transport
 ]
 
 [project.optional-dependencies]
 sandbox = [
   "fastapi>=0.110,<1",
   "uvicorn>=0.52.4,<1",
-  "jinja2>=3.1.6,<4",         # sandbox HTML UI -- needed for the independent-channel story
+  "jinja2>=3.1.6,<4",       # sandbox HTML UI -- needed for the independent-channel story
   "reportlab>=4.1,<5",      # deterministic invoice PDF generation (BSD-3)
 ]
 extract = [
-  "pdfplumber>=0.11.10,<1",    # PDF text+layout with per-word bounding boxes (MIT)
+  "pdfplumber>=0.11.10,<1", # PDF text+layout with per-word bounding boxes (MIT)
 ]
 dev = [
   "pytest>=9.1.1,<10",

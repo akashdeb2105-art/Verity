@@ -6,6 +6,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+- Dependency floors raised by Dependabot and verified against the upgraded
+  toolchain: pytest 9, mypy 2.3, ruff 0.16, import-linter 2.15, plus httpx
+  0.28.1, jinja2 3.1.6, uvicorn 0.52.4 and pdfplumber 0.11.10. The jinja2 and
+  uvicorn floors carry security fixes.
+- GitHub Actions pinned to `checkout@v7`, `setup-python@v7` and
+  `upload-artifact@v7`.
+
+### Fixed
+- Dependabot no longer requests a `dependencies` label. The label does not
+  exist in this repository, and naming a missing label made Dependabot warn on
+  every pull request it opened.
+
 ### Added
 - A repository hygiene guard (`tests/security/test_repository_hygiene.py`) that
   scans every tracked file for credential-shaped literals, tracked `.env` or key
