@@ -74,7 +74,8 @@ class AiCassette:
             )
         return Completion(
             data=entry["response"], model=entry["model"],
-            raw=json.dumps(entry["response"]), usd=float(entry.get("usd") or 0.0),
+            raw=json.dumps(entry["response"]),
+            usd=None if entry.get("usd") is None else float(entry["usd"]),
         )
 
     def __len__(self) -> int:

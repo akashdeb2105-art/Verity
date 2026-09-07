@@ -51,7 +51,11 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
              "Suggestions are written commented out; nothing is enforced until "
              "you accept it.",
     )
-    parser.add_argument("--ai-provider", help="openrouter | gemini | openai | ollama")
+    parser.add_argument(
+        "--ai-provider",
+        help="gemini | fireworks | openrouter | openai | ollama, or a '+'-separated "
+             "fallback chain such as gemini+openrouter",
+    )
     parser.add_argument("--ai-model", help="override the model name")
     parser.add_argument("--no-color", action="store_true")
 
@@ -197,9 +201,9 @@ def _maybe_enrich(
     if not getattr(args, "ai", False):
         return None
 
-    from verity_ai import AiCassette, AiCassetteMode, Budget, CassetteProvider, build_provider
+    from verity_ai import AiCassette, AiCassetteMode, Budget, CassetteProvider, build_chain
 
-    provider = build_provider(
+    provider = build_chain(
         getattr(args, "ai_provider", None), model=getattr(args, "ai_model", None)
     )
     cassette_path = os.environ.get("VERITY_AI_CASSETTE")

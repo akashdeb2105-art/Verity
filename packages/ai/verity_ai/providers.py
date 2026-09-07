@@ -6,6 +6,10 @@ answer, which is why swapping providers changes no behaviour anywhere else.
 
 Prices are per million tokens and are used only for the local budget ceiling.
 They drift; they are not billing, and the budget is deliberately conservative.
+
+A price of ``None`` means the price for this model is not known here. That is
+reported as unknown rather than as zero: a run that quietly prints $0.0000
+while billing a card is worse than one that admits it cannot tell.
 """
 
 from __future__ import annotations
@@ -40,8 +44,8 @@ class HttpProvider:
     api_key: str | None
     timeout: float = DEFAULT_TIMEOUT
     client: httpx.Client | None = None
-    input_price: float = 0.0
-    output_price: float = 0.0
+    input_price: float | None = 0.0
+    output_price: float | None = 0.0
 
     def available(self) -> bool:
         return bool(self.api_key)
@@ -59,7 +63,9 @@ class HttpProvider:
     def _text_from(self, payload: dict[str, Any]) -> str:
         raise NotImplementedError
 
-    def _usage_cost(self, payload: dict[str, Any]) -> float:
+    def _usage_cost(self, payload: dict[str, Any]) -> float | None:
+        if self.input_price is None or self.output_price is None:
+            return None
         usage = payload.get("usage") or {}
         prompt = float(usage.get("prompt_tokens") or usage.get("promptTokenCount") or 0)
         completion = float(
@@ -161,6 +167,24 @@ class OpenRouterProvider(OpenAICompatibleProvider):
         }
 
 
+class FireworksProvider(OpenAICompatibleProvider):
+    """Fireworks AI. OpenAI's shape, with fully-qualified model names.
+
+    Fireworks offers a 'priority' service tier at a higher price. It is not
+    requested here: this layer makes at most a handful of calls while a person
+    waits, so paying for reduced queueing would buy nothing worth the money.
+    """
+
+    def _payload(self, system: str, user: str) -> dict[str, Any]:
+        payload = super()._payload(system, user)
+        # Fireworks accepts the short form, but its own docs and dashboard use
+        # the fully-qualified name, so accept either and send the long one.
+        model = str(payload.get("model", ""))
+        if model and not model.startswith("accounts/"):
+            payload["model"] = f"accounts/fireworks/models/{model}"
+        return payload
+
+
 class GeminiProvider(HttpProvider):
     """Google AI Studio. A different request shape from everyone else."""
 
@@ -188,7 +212,9 @@ class GeminiProvider(HttpProvider):
         parts = (candidates[0].get("content") or {}).get("parts") or []
         return "".join(str(p.get("text", "")) for p in parts)
 
-    def _usage_cost(self, payload: dict[str, Any]) -> float:
+    def _usage_cost(self, payload: dict[str, Any]) -> float | None:
+        if self.input_price is None or self.output_price is None:
+            return None
         usage = payload.get("usageMetadata") or {}
         prompt = float(usage.get("promptTokenCount") or 0)
         completion = float(usage.get("candidatesTokenCount") or 0)
@@ -210,23 +236,31 @@ PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
     "openrouter": {
         "cls": OpenRouterProvider,
         "base_url": "https://openrouter.ai/api/v1",
-        "model": "google/gemini-2.0-flash-exp:free",
+        "model": "minimax/minimax-m3:free",
         "keys": ("OPENROUTER_API_KEY",),
-        "input_price": 0.0, "output_price": 0.0,
+        # Priced per model below: ':free' is free, anything else is unknown.
+        "input_price": None, "output_price": None,
+    },
+    "fireworks": {
+        "cls": FireworksProvider,
+        "base_url": "https://api.fireworks.ai/inference/v1",
+        "model": "accounts/fireworks/models/glm-5p3-flash",
+        "keys": ("FIREWORKS_API_KEY",),
+        "input_price": None, "output_price": None,
     },
     "gemini": {
         "cls": GeminiProvider,
         "base_url": "https://generativelanguage.googleapis.com/v1beta",
-        "model": "gemini-2.0-flash",
+        "model": "gemini-3.5-flash",
         "keys": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
-        "input_price": 0.10, "output_price": 0.40,
+        "input_price": None, "output_price": None,
     },
     "openai": {
         "cls": OpenAICompatibleProvider,
         "base_url": "https://api.openai.com/v1",
         "model": "gpt-4o-mini",
         "keys": ("OPENAI_API_KEY",),
-        "input_price": 0.15, "output_price": 0.60,
+        "input_price": None, "output_price": None,
     },
     "ollama": {
         "cls": OllamaProvider,
@@ -259,13 +293,140 @@ def build_provider(
         )
 
     api_key = env(*spec["keys"]) if spec["keys"] else "local"
+    chosen_model = model or env("VERITY_LLM_MODEL") or spec["model"]
+    input_price, output_price = _price_of(chosen, chosen_model, spec)
     cls = spec["cls"]
     return cls(
         name=chosen,
-        model=model or env("VERITY_LLM_MODEL") or spec["model"],
+        model=chosen_model,
         base_url=env("VERITY_LLM_BASE_URL") or spec["base_url"],
         api_key=api_key,
         client=client,
-        input_price=spec["input_price"],
-        output_price=spec["output_price"],
+        input_price=input_price,
+        output_price=output_price,
     )
+
+
+#: Prices per million tokens, as published by the provider on the day they
+#: were read. They drift, so a model absent here is reported as unpriced
+#: rather than guessed -- a made-up cost is worse than an admitted gap.
+KNOWN_PRICES: dict[tuple[str, str], tuple[float, float]] = {
+    # Fireworks, standard serving tier, read 2026-09-07.
+    ("fireworks", "accounts/fireworks/models/glm-5p3-flash"): (0.15, 0.50),
+}
+
+
+def _price_of(
+    provider: str, model: str, spec: dict[str, Any]
+) -> tuple[float | None, float | None]:
+    """What a million tokens costs, or None when this build cannot say.
+
+    Only two cases are known for certain without a price feed: a provider that
+    runs on the user's own machine, and OpenRouter's ':free' models, which that
+    service defines as free. Everything else is unknown, and saying so is the
+    point -- a printed $0.0000 that is actually a charge would be a fabricated
+    number, and this tool reports cost to be trusted.
+    """
+    if provider == "ollama":
+        return 0.0, 0.0
+    if provider == "openrouter" and model.endswith(":free"):
+        return 0.0, 0.0
+    known = KNOWN_PRICES.get((provider, model))
+    if known is not None:
+        return known
+    return spec["input_price"], spec["output_price"]
+
+
+@dataclass
+class FallbackProvider:
+    """Tries each provider in turn, and reports which one answered.
+
+    Free endpoints are rate limited and models are retired without notice --
+    both happened while this layer was being built. A chain means a missing
+    key or a dead model costs a fallback rather than the whole run.
+
+    A refusal is not a reason to try the next provider. Only a transport-level
+    failure is: if a provider answered and the answer was unusable, the next
+    provider will likely produce the same unusable answer at twice the cost.
+    """
+
+    providers: tuple[Any, ...]
+    #: Set to the provider that answered, so a caller can report it honestly.
+    used: Any = None
+
+    @property
+    def name(self) -> str:
+        if self.used is not None:
+            return str(self.used.name)
+        return "+".join(str(p.name) for p in self.providers) or "none"
+
+    @property
+    def model(self) -> str:
+        if self.used is not None:
+            return str(self.used.model)
+        first = self._ready()
+        return str(first.model) if first is not None else "none"
+
+    def _ready(self) -> Any:
+        for provider in self.providers:
+            if provider.available():
+                return provider
+        return None
+
+    def available(self) -> bool:
+        return self._ready() is not None
+
+    def complete_json(self, system: str, user: str, *, schema_hint: str = "") -> Completion:
+        ready = [p for p in self.providers if p.available()]
+        if not ready:
+            raise ProviderError(
+                "no model provider is configured. Set VERITY_LLM_PROVIDER and "
+                "the matching API key, or run without --ai."
+            )
+
+        failures: list[str] = []
+        for provider in ready:
+            try:
+                completion: Completion = provider.complete_json(
+                    system, user, schema_hint=schema_hint
+                )
+            except ProviderError as exc:
+                failures.append(str(exc))
+                continue
+            self.used = provider
+            return completion
+
+        raise ProviderError("; then ".join(failures))
+
+
+def build_chain(
+    names: str | None = None,
+    *,
+    model: str | None = None,
+    client: httpx.Client | None = None,
+) -> Any:
+    """Build one provider, or a fallback chain from a '+'-separated list.
+
+    ``VERITY_LLM_PROVIDER=gemini+openrouter`` tries Google first and falls back
+    to OpenRouter. A single name behaves exactly as before, so nothing that
+    names one provider changes.
+
+    An explicit --ai-model applies to the first provider only. Model names are
+    not portable between providers, so handing one provider's name to another
+    would produce a confusing 404 rather than a working fallback.
+    """
+    from .base import NullProvider
+
+    raw = (names or env("VERITY_LLM_PROVIDER") or "").strip().lower()
+    parts = [p for p in (piece.strip() for piece in raw.split("+")) if p]
+    if len(parts) < 2:
+        return build_provider(names, model=model, client=client)
+
+    built = [
+        build_provider(part, model=model if index == 0 else None, client=client)
+        for index, part in enumerate(parts)
+    ]
+    usable = [p for p in built if not isinstance(p, NullProvider)]
+    if not usable:
+        return NullProvider()
+    return FallbackProvider(providers=tuple(usable))

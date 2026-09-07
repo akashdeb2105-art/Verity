@@ -104,7 +104,7 @@ class Enrichment:
     rejected: list[str] = field(default_factory=list)
     provider: str = ""
     model: str = ""
-    usd: float = 0.0
+    usd: float | None = 0.0
     error: str | None = None
 
     @property
@@ -115,9 +115,10 @@ class Enrichment:
     def summary(self) -> str:
         if self.error:
             return f"no suggestions ({self.error})"
+        cost = "cost unknown" if self.usd is None else f"${self.usd:.4f}"
         return (
-            f"{len(self.suggestions)} suggested, {len(self.rejected)} discarded, "
-            f"${self.usd:.4f}"
+            f"{len(self.suggestions)} suggested, "
+            f"{len(self.rejected)} discarded, {cost}"
         )
 
 

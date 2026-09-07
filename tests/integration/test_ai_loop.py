@@ -19,6 +19,7 @@ from verity_verifier import load_contract_text, typecheck
 ROOT = Path(__file__).resolve().parents[1] / "fixtures"
 SESSION = ROOT / "sessions" / "ap_invoice_to_po.session.json"
 CASSETTE = ROOT / "ai" / "invoice_to_po.cassette.json"
+RECORDED_MODEL = "google/gemini-2.0-flash-exp:free"
 
 
 @pytest.fixture()
@@ -26,7 +27,10 @@ def enriched() -> tuple[Any, Any]:
     steps = normalize(read_session(SESSION))
     draft = propose(steps, name="invoice_to_po")
 
-    inner = build_provider("openrouter")
+    # Pinned to the model that actually produced this recording. A cassette
+    # is keyed on the model name, and it is a record of who said what -- so it
+    # must not follow the configured default when that default changes.
+    inner = build_provider("openrouter", model=RECORDED_MODEL)
     inner.api_key = None  # replay must not need one
     provider = CassetteProvider(inner, AiCassette(CASSETTE, AiCassetteMode.REPLAY))
 

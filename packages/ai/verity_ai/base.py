@@ -47,21 +47,32 @@ class Budget:
     calls: int = 0
     input_chars: int = 0
     usd: float = 0.0
+    #: False once a call was made whose cost this build could not price.
+    priced: bool = True
 
-    def charge(self, prompt_chars: int, usd: float = 0.0) -> None:
+    def charge(self, prompt_chars: int, usd: float | None = 0.0) -> None:
         if self.calls + 1 > self.max_calls:
             raise BudgetExceededError(f"call budget exhausted ({self.max_calls} calls)")
         if self.input_chars + prompt_chars > self.max_input_chars:
             raise BudgetExceededError("input budget exhausted")
-        if self.usd + usd > self.max_usd:
+        # An unknown price cannot be added to a running total, so a call whose
+        # cost this build cannot price is capped by the call ceiling alone.
+        if usd is not None and self.usd + usd > self.max_usd:
             raise BudgetExceededError(f"cost budget exhausted (${self.max_usd:.2f})")
         self.calls += 1
         self.input_chars += prompt_chars
-        self.usd += usd
+        if usd is None:
+            self.priced = False
+        else:
+            self.usd += usd
 
     @property
     def summary(self) -> dict[str, Any]:
-        return {"calls": self.calls, "input_chars": self.input_chars, "usd": round(self.usd, 4)}
+        return {
+            "calls": self.calls,
+            "input_chars": self.input_chars,
+            "usd": round(self.usd, 4) if self.priced else None,
+        }
 
 
 @dataclass(frozen=True)
@@ -71,7 +82,8 @@ class Completion:
     data: dict[str, Any]
     model: str
     raw: str = field(repr=False, default="")
-    usd: float = 0.0
+    #: None when this build cannot price the model that answered.
+    usd: float | None = 0.0
 
 
 @runtime_checkable

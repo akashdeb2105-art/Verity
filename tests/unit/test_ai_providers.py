@@ -22,8 +22,11 @@ from verity_ai import (
     Budget,
     BudgetExceededError,
     CassetteProvider,
+    Completion,
+    FallbackProvider,
     NullProvider,
     ProviderError,
+    build_chain,
     build_provider,
     extract_json,
 )
@@ -108,7 +111,9 @@ def test_gemini_sends_its_own_shape() -> None:
     assert seen["body"]["generationConfig"]["responseMimeType"] == "application/json"
     assert seen["body"]["system_instruction"]["parts"][0]["text"] == "be helpful"
     assert result.data == ANSWER
-    assert result.usd > 0
+    # Gemini's per-model prices are not compiled in, so the cost is reported
+    # as unknown rather than as zero. See test_an_unpriced_model_reports_...
+    assert result.usd is None
 
 
 def test_a_blocked_gemini_response_says_why() -> None:
@@ -222,3 +227,177 @@ def test_a_cassette_miss_is_explicit(tmp_path: Path) -> None:
                                                    AiCassetteMode.REPLAY))
     with pytest.raises(AiCassetteMissError, match="no recorded exchange"):
         wrapped.complete_json("s", "u")
+
+
+# ---------------------------------------------------------------- fireworks
+
+def test_fireworks_qualifies_a_short_model_name() -> None:
+    """Fireworks names models 'accounts/fireworks/models/x'.
+
+    Its dashboard shows the long form and people paste the short one, so both
+    are accepted and the long one is always sent.
+    """
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": json.dumps(ANSWER)}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+        })
+
+    provider = build_provider("fireworks", model="kimi-k3", client=_transport(handler))
+    provider.api_key = "test-key"
+    result = provider.complete_json("be helpful", "suggest checks")
+
+    assert seen["url"] == "https://api.fireworks.ai/inference/v1/chat/completions"
+    assert seen["auth"] == "Bearer test-key"
+    assert seen["body"]["model"] == "accounts/fireworks/models/kimi-k3"
+    # The priority tier costs more and buys nothing here, so it is never asked for.
+    assert "service_tier" not in seen["body"]
+    assert result.data == ANSWER
+
+
+def test_a_fully_qualified_fireworks_model_is_left_alone() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": json.dumps(ANSWER)}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        })
+
+    name = "accounts/fireworks/models/glm-5p3-flash"
+    provider = build_provider("fireworks", model=name, client=_transport(handler))
+    provider.api_key = "test-key"
+    provider.complete_json("be helpful", "suggest checks")
+
+    assert seen["body"]["model"] == name
+
+
+# -------------------------------------------------------------------- cost
+
+def test_a_priced_model_reports_what_it_cost() -> None:
+    """GLM 5.3 Flash has a published price, so the spend is real arithmetic."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": json.dumps(ANSWER)}}],
+            "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 1_000_000},
+        })
+
+    provider = build_provider(
+        "fireworks",
+        model="accounts/fireworks/models/glm-5p3-flash",
+        client=_transport(handler),
+    )
+    provider.api_key = "test-key"
+
+    assert provider.complete_json("s", "u").usd == pytest.approx(0.65)  # 0.15 + 0.50
+
+
+def test_an_unpriced_model_says_unknown_rather_than_zero() -> None:
+    """A printed $0.0000 that is really a charge would be a fabricated number.
+
+    Most models here have no compiled-in price, and the honest report of an
+    unknown cost is 'unknown'. The budget's call ceiling still applies.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": json.dumps(ANSWER)}}],
+            "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 1_000_000},
+        })
+
+    provider = build_provider("fireworks", model="kimi-k3", client=_transport(handler))
+    provider.api_key = "test-key"
+
+    assert provider.complete_json("s", "u").usd is None
+
+
+def test_an_openrouter_free_model_is_known_to_be_free() -> None:
+    provider = build_provider("openrouter", model="minimax/minimax-m3:free")
+    assert (provider.input_price, provider.output_price) == (0.0, 0.0)
+
+    paid = build_provider("openrouter", model="minimax/minimax-m3")
+    assert (paid.input_price, paid.output_price) == (None, None)
+
+
+def test_an_unpriced_call_is_still_capped_by_the_call_ceiling() -> None:
+    budget = Budget(max_calls=2)
+    budget.charge(10, None)
+    budget.charge(10, None)
+
+    assert budget.summary["usd"] is None
+    with pytest.raises(BudgetExceededError):
+        budget.charge(10, None)
+
+
+# ---------------------------------------------------------------- fallback
+
+def test_a_chain_falls_back_when_the_first_provider_fails() -> None:
+    """A dead model or a rate limit should cost a fallback, not the run.
+
+    Both happened for real while this layer was built: a model was retired
+    mid-session and a free endpoint returned 429.
+    """
+    calls: list[str] = []
+
+    class Stub:
+        def __init__(self, name: str, error: Exception | None = None) -> None:
+            self.name, self.model, self._error = name, f"{name}-1", error
+
+        def available(self) -> bool:
+            return True
+
+        def complete_json(self, system: str, user: str, *, schema_hint: str = "") -> Completion:
+            calls.append(self.name)
+            if self._error is not None:
+                raise self._error
+            return Completion(data=ANSWER, model=self.model, usd=0.0)
+
+    chain = FallbackProvider(providers=(
+        Stub("dead", ProviderError("dead: HTTP 404 -- no endpoints found")),
+        Stub("busy", ProviderError("busy: rate limited (429)")),
+        Stub("good"),
+    ))
+
+    assert chain.complete_json("s", "u").data == ANSWER
+    assert calls == ["dead", "busy", "good"]
+    # The report must name the provider that actually answered.
+    assert chain.name == "good"
+
+
+def test_a_chain_that_runs_out_reports_every_failure() -> None:
+    class Dead:
+        name, model = "dead", "dead-1"
+
+        def available(self) -> bool:
+            return True
+
+        def complete_json(self, system: str, user: str, *, schema_hint: str = "") -> Completion:
+            raise ProviderError("dead: the API key was rejected (401)")
+
+    chain = FallbackProvider(providers=(Dead(),))
+    with pytest.raises(ProviderError, match="401"):
+        chain.complete_json("s", "u")
+
+
+def test_a_chain_is_built_from_a_plus_separated_list(monkeypatch: Any) -> None:
+    monkeypatch.setenv("GOOGLE_API_KEY", "g")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "o")
+
+    chain = build_chain("gemini+openrouter")
+
+    assert isinstance(chain, FallbackProvider)
+    assert [p.name for p in chain.providers] == ["gemini", "openrouter"]
+    # Before anything answers, the chain names what it would try.
+    assert chain.name == "gemini+openrouter"
+
+
+def test_one_provider_name_still_builds_one_provider(monkeypatch: Any) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "o")
+    assert not isinstance(build_chain("openrouter"), FallbackProvider)

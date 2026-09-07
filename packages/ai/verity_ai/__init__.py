@@ -27,11 +27,14 @@ from .cassette import (
 )
 from .providers import (
     PROVIDER_DEFAULTS,
+    FallbackProvider,
+    FireworksProvider,
     GeminiProvider,
     HttpProvider,
     OllamaProvider,
     OpenAICompatibleProvider,
     OpenRouterProvider,
+    build_chain,
     build_provider,
 )
 
@@ -44,6 +47,8 @@ __all__ = [
     "BudgetExceededError",
     "CassetteProvider",
     "Completion",
+    "FallbackProvider",
+    "FireworksProvider",
     "GeminiProvider",
     "HttpProvider",
     "NullProvider",
@@ -52,6 +57,7 @@ __all__ = [
     "OpenRouterProvider",
     "Provider",
     "ProviderError",
+    "build_chain",
     "build_provider",
     "env",
     "extract_json",
