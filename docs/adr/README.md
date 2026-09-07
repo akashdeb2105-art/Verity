@@ -16,3 +16,4 @@ the cost we accepted.
 | [0008](0008-dependency-policy.md) | Dependency policy |
 | [0009](0009-deterministic-compilation.md) | The compiler proposes deterministically |
 | [0010](0010-where-a-model-belongs.md) | A model proposes; deterministic code decides |
+| [0011](0011-the-runtime-and-the-verifier.md) | The runtime and the verifier do not know about each other |

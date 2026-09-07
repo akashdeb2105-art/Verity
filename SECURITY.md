@@ -33,6 +33,11 @@ arguments — reachable from neither parsed page content nor model output.
 | Secrets are never persisted | Redaction runs before any evidence is written, fails closed on unknown fields | `tests/unit/test_redaction.py` |
 | A recording never carries a credential | Redaction at the point of capture: inside the page, then on content. 30 adversarial field shapes | `tests/unit/test_capture_redaction.py` |
 | Redaction does not destroy business data | 15 ordinary field names asserted to survive | `tests/unit/test_capture_redaction.py` |
+| Nothing consequential happens unverified | The runtime consults a gate before the first world-changing step; only `PASS` continues | `tests/unit/test_runtime.py`, parametrised over all four verdicts |
+| A missing decision is not permission | The default gate refuses everything; `INCONCLUSIVE` halts | `tests/unit/test_runtime.py` |
+| A dry run cannot write | Interception at the connector boundary; sandbox state hash asserted unchanged | `tests/integration/test_run_loop.py` |
+| The executor can never reach a verifier or a model | `import-linter`, plus a fresh-interpreter probe | `tests/security/test_invariants.py` |
+| Verification can never reach a write | Reading and writing are separate protocols; `HttpJsonConnector` has no `write` | `tests/security/test_invariants.py` |
 | The verifier can never reach a model | `import-linter` forbids `verity_verifier` from importing `verity_ai` or any provider SDK | CI, and `tests/security` |
 | A model cannot get a check into a contract | Every suggestion is parsed and validated afterwards; four hostile suggestions asserted to be discarded | `tests/unit/test_ai_enrichment.py` |
 | A model suggestion is never enforced silently | Suggestions are written commented out | `tests/integration/test_ai_loop.py` |

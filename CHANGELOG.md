@@ -35,6 +35,21 @@ once and propose the contract itself.
   duplicates, forbidden outcomes, branches, tolerances — and names any document
   that was opened but not read.
 
+**Runtime** (`verity_runtime`)
+- `verity run` and `verity dry-run` execute a WorkGraph and halt before a
+  consequential write when verification does not pass. Only `PASS` continues:
+  `INCONCLUSIVE` halts too, because "I could not check" is not permission.
+- A runtime with no gate configured is closed, not open.
+- No import edge between the runtime and the verifier in either direction;
+  the CLI composes them. Two import-linter contracts enforce it. See
+  ADR-0011.
+- Deterministic and free: ten replays take the same path at zero cost, with
+  no model provider importable from the package.
+- Reading and writing are now separate connector protocols. Every write
+  passes through a `WriteGuard`; in dry-run mode it records the intent and
+  performs nothing, proven by the sandbox state hash.
+- Exit codes: 0 completed, 1 failed, 2 halted.
+
 **The document channel**
 - A demonstration that opens a document now keeps it: fetched through the
   recording's own browser context, so a file behind a login is reachable, and

@@ -220,6 +220,10 @@ The draft says so itself. A single successful run cannot show duplicates,
 forbidden outcomes, branches or tolerances, and the file opens by listing
 exactly that.
 
+`verity run` does the work and refuses to finish it when the outcome is
+wrong — it halts before the write, and prints `runtime said DONE` next to
+`verifier says FAIL`. See [docs/runtime.md](docs/runtime.md).
+
 If the demonstration opened a document, Verity keeps it and reads it. That is
 the difference between a contract that compares two screens the same system
 wrote and one that compares the invoice to the order -- and it is why the
