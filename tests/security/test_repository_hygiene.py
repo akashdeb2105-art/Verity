@@ -145,3 +145,27 @@ def test_shell_scripts_are_executable() -> None:
         and not p.stat().st_mode & stat.S_IXUSR
     ]
     assert offenders == [], f"scripts are not executable: {offenders}"
+
+
+def test_every_test_named_in_security_md_exists() -> None:
+    """The invariant table is a list of claims. A claim citing a test that does
+    not exist is worse than no claim: it reads as evidence and is not.
+
+    Renaming a test is easy and normal. This makes the table follow.
+    """
+    import re
+
+    security = (REPO_ROOT / "SECURITY.md").read_text("utf-8")
+    references = sorted(set(re.findall(r"`(tests/[^`]+)`", security)))
+    assert references, "SECURITY.md cites no tests at all"
+
+    missing: list[str] = []
+    for reference in references:
+        path_part, _, test_name = reference.partition("::")
+        path = REPO_ROOT / path_part
+        if not path.exists():
+            missing.append(f"{reference} (no such path)")
+        elif test_name and f"def {test_name}(" not in path.read_text("utf-8"):
+            missing.append(f"{reference} (no such test in file)")
+
+    assert not missing, "SECURITY.md points at tests that do not exist: " + ", ".join(missing)

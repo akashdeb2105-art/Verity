@@ -27,6 +27,19 @@ arguments — reachable from neither parsed page content nor model output.
 | Invariant | How it is enforced | Test |
 | --- | --- | --- |
 | Verification is deterministic; zero model calls | No provider SDK is a dependency; `model_calls` budget must be `0` and is validated at load time | `tests/security/test_invariants.py` |
+| Risk cannot be lowered by declaring it | Classification reads the verb, resource and payload; the effective level is `max(declared, assessed)` | `tests/unit/test_policy.py::test_a_graph_cannot_declare_its_way_out_of_risk` |
+| An unreadable amount escalates rather than counting as zero | An unparseable amount field emits a `HIGH` signal | `tests/unit/test_policy.py::test_an_unreadable_amount_escalates_rather_than_counting_as_zero` |
+| A policy that has not decided has not granted permission | `requirement_for` returns `FORBID` for any unlisted level; unknown keys in a policy file are rejected | `tests/unit/test_policy.py::test_a_gap_in_a_policy_forbids_rather_than_allows` |
+| A forbidden action stops the run before it starts | Every consequential step is classified in pre-flight, before any step runs | `tests/unit/test_approval.py::test_a_forbidden_action_stops_the_run_before_it_starts` |
+| An approval authorises one payload, in one run | Approval is matched on `(run_id, node_id, payload_digest)`; the digest covers resource and every field | `tests/unit/test_approval.py::test_an_approved_amount_cannot_be_replayed_at_a_different_amount` |
+| An approval store cannot grant anything on its own | The match is made in `check_approval`, not in the store; a deliberately sloppy store is passed in a test | `tests/unit/test_approval.py::test_a_careless_store_cannot_grant_anything` |
+| What an approver is shown is what is checked | `pending_writes` builds the intent with the same function the executor uses | `tests/unit/test_approval.py::test_what_an_approver_is_shown_is_what_is_checked` |
+| A run with no approvals configured writes nothing | `NoApprovals` is the default store | `tests/unit/test_approval.py::test_a_run_with_no_approvals_configured_writes_nothing` |
+| A run can be stopped, and stops within one step | Kill switch and budgets are checked between steps | `tests/unit/test_audit.py::test_a_kill_switch_pulled_mid_run_stops_the_rest_of_it` |
+| An edited, removed or reordered audit entry is detected | Each entry carries the hash of the previous one; `verify` names the first index that fails | `tests/unit/test_audit.py::test_editing_an_entry_is_detected` |
+| Audit truncation at the end is **not** detected | Stated, not enforced -- it needs an anchor outside the file, which does not exist yet | `tests/unit/test_audit.py::test_truncating_the_end_is_not_detected_and_that_is_stated` |
+| No injection payload produces an unapproved write | Fifteen payloads in free text; the executor holds no model, so text is never instruction | `tests/security/test_injection_suite.py` |
+| No injection payload changes what would be written | Payloads are built only from the run's declared inputs and the graph | `tests/security/test_injection_suite.py::test_no_payload_changes_what_would_be_written` |
 | No dynamic code execution | The expression language is hand-tokenised and hand-parsed; a test walks the verifier's AST for calls to `eval`, `exec`, `compile`, `__import__` | `tests/security/test_invariants.py` |
 | A contract cannot construct Python objects | `yaml.safe_load` only | `tests/security/test_invariants.py` |
 | Adversarial text in a document or page changes nothing | Injection perturbation, verified alone and alongside a real fault | `tests/security/test_invariants.py` |

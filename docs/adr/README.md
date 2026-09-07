@@ -17,3 +17,5 @@ the cost we accepted.
 | [0009](0009-deterministic-compilation.md) | The compiler proposes deterministically |
 | [0010](0010-where-a-model-belongs.md) | A model proposes; deterministic code decides |
 | [0011](0011-the-runtime-and-the-verifier.md) | The runtime and the verifier do not know about each other |
+| [0012](0012-approval-is-bound-to-a-payload.md) | A declaration is not evidence, and an approval is not a boolean |
+| [0013](0013-what-the-audit-chain-proves.md) | What the audit chain proves, and what it does not |

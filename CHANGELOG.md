@@ -49,6 +49,45 @@ once and propose the contract itself.
   passes through a `WriteGuard`; in dry-run mode it records the intent and
   performs nothing, proven by the sandbox state hash.
 - Exit codes: 0 completed, 1 failed, 2 halted.
+- **Risk is assessed, not declared.** A graph's `risk` field is a claim by
+  whoever wrote the graph; classification reads the verb, resource and payload
+  and takes the higher of declared and assessed. A node marked `LOW` writing
+  $250,000 is `CRITICAL`. An amount that cannot be read escalates rather than
+  counting as zero. See ADR-0012.
+- **Policy is configuration.** A risk level it does not mention is forbidden,
+  not allowed; an unknown key in a policy file is rejected rather than ignored;
+  and a run containing a forbidden action does not begin.
+- **An approval is bound to `(run_id, node_id, payload_digest)`.** Approving a
+  $14,800 bill cannot authorise a $148,000 one -- verified against the running
+  sandbox, with the contract still returning `PASS`. Refusals distinguish "no
+  approval on file" from "the payload changed after it was approved". The match
+  is made in the runtime, so a carelessly written store cannot grant anything.
+- `verity pending` shows what an approver has to be shown: the intent, the
+  assessed risk with its reasons, and the digest that will be checked -- built
+  by the same function the executor uses.
+- **A kill switch and budgets**, checked between steps so a stop takes at most
+  one step and nothing is interrupted mid-call. `FileKillSwitch` stops a run
+  when a file appears.
+- **A hash-chained audit record** of every decision. An edited, removed or
+  reordered entry is detected and named. Truncation at the end is *not*, and
+  that limit is stated in the module, in `SECURITY.md` and in a test. See
+  ADR-0013.
+- **Fifteen prompt-injection payloads**, grouped by what they attack -- forged
+  approvals and digests, spoofed verdicts, redirected writes, policy disabling,
+  zero-width and bidi hiding. None moves a payload digest, lowers an assessed
+  risk, or produces an unapproved write.
+
+### Known
+
+- Four of the fifteen injection payloads disturb the invoice PDF's layout
+  enough that anchored vendor extraction misses and reports `FAIL` on an
+  invoice whose vendor is unchanged. The outcome is safe -- the run halts and
+  writes nothing -- but it is a false positive, and it is named and pinned by
+  a test rather than tuned away.
+- Approvals are not signed. The binding proves the approval and the payload
+  agree, not who authorised it.
+- The audit head has nowhere external to be anchored, so truncation is
+  undetectable.
 
 **The document channel**
 - A demonstration that opens a document now keeps it: fetched through the

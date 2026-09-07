@@ -222,7 +222,17 @@ exactly that.
 
 `verity run` does the work and refuses to finish it when the outcome is
 wrong — it halts before the write, and prints `runtime said DONE` next to
-`verifier says FAIL`. See [docs/runtime.md](docs/runtime.md).
+`verifier says FAIL`.
+
+Verification passing is not the same as being allowed. Before a consequential
+write, four things have to hold: the policy must not forbid the step, nothing
+must have asked the run to stop, verification must return `PASS`, and someone
+must have approved **that exact payload**. Risk is assessed from what the step
+would do rather than taken from what the graph declares, and an approval is
+bound to a digest of the payload — so approving a $14,800 bill cannot
+authorise a $148,000 one, even while the contract still says `PASS`. Every
+decision lands in a hash-chained record. See
+[docs/runtime.md](docs/runtime.md).
 
 If the demonstration opened a document, Verity keeps it and reads it. That is
 the difference between a contract that compares two screens the same system
