@@ -108,10 +108,13 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Every package, plus the repo root so `tests.conftest` resolves. The suite must
+# collect from a bare clone without relying on an editable install being present.
 pythonpath = [
   "packages/schema", "packages/ai", "packages/evidence", "packages/connectors",
   "packages/extract", "packages/capture", "packages/compiler",
-  "packages/verifier", "packages/cli", "apps/sandbox",
+  "packages/runtime", "packages/verifier", "packages/cli", "apps/sandbox",
+  ".",
 ]
 addopts = "-q --strict-markers"
 markers = [
