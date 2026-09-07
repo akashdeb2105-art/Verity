@@ -30,9 +30,18 @@ class AiCassetteMissError(ProviderError):
     """Replay was asked for an exchange the cassette does not contain."""
 
 
-def _key(provider: str, model: str, system: str, user: str) -> str:
+def _key(system: str, user: str) -> str:
+    """A cassette entry is identified by the question, not by who answered it.
+
+    Which provider and model produced the answer is recorded alongside it,
+    because it is worth knowing -- but it is not part of the identity. Keying
+    on it would mean a committed fixture only replays for whoever happens to
+    have the same provider configured, and would silently stop matching the
+    day a default model changed. Neither is a property a test fixture should
+    have.
+    """
     digest = hashlib.sha256(
-        json.dumps([provider, model, system, user], sort_keys=True).encode()
+        json.dumps([system, user], sort_keys=True).encode()
     ).hexdigest()
     return digest[:32]
 
@@ -59,11 +68,21 @@ class AiCassette:
             encoding="utf-8",
         )
 
-    def record(self, key: str, prompt: dict[str, str], completion: Completion) -> None:
+    def record(self, key: str, prompt: dict[str, str], completion: Completion,
+               provider: str = "") -> None:
+        """Store an exchange and write it out.
+
+        Saved immediately rather than on a later call nobody remembers to
+        make. A recorder that keeps the recording in memory and exits quietly
+        is worse than no recorder: it reports success and leaves nothing
+        behind, which is exactly what happened the first time this was used.
+        """
         self._exchanges[key] = {
-            "key": key, "prompt": prompt, "model": completion.model,
-            "response": completion.data, "usd": completion.usd,
+            "key": key, "prompt": prompt, "provider": provider,
+            "model": completion.model, "response": completion.data,
+            "usd": completion.usd,
         }
+        self.save()
 
     def replay(self, key: str) -> Completion:
         entry = self._exchanges.get(key)
@@ -97,7 +116,7 @@ class CassetteProvider:
         return bool(self._inner.available())
 
     def complete_json(self, system: str, user: str, *, schema_hint: str = "") -> Completion:
-        key = _key(self._inner.name, self._inner.model, system, user)
+        key = _key(system, user)
 
         if self._cassette.mode is AiCassetteMode.REPLAY:
             return self._cassette.replay(key)
@@ -107,5 +126,10 @@ class CassetteProvider:
         )
 
         if self._cassette.mode is AiCassetteMode.RECORD:
-            self._cassette.record(key, {"system": system, "user": user}, completion)
+            # The provider is read after the call, not before: with a fallback
+            # chain the one that answers is not known until it does.
+            self._cassette.record(
+                key, {"system": system, "user": user}, completion,
+                provider=str(self._inner.name),
+            )
         return completion

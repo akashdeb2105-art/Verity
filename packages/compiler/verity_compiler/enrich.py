@@ -35,11 +35,13 @@ from typing import Any
 
 from verity_ai import Budget, Completion, Provider, ProviderError
 from verity_schema.expr import (
+    Call,
     Compare,
     Expr,
     ExpressionSyntaxError,
     Not,
     parse,
+    referenced_paths,
     referenced_roots,
     render,
     unknown_functions,
@@ -65,6 +67,14 @@ Rules you must follow:
     within(a, b, tolerance = 0.01)   count(x)   any(x, f == "v")
     all(x, ...)   none(x, ...)   unique(x, field)   exists(x)   is_null(x)
   '~=' is case-insensitive text equality. Use within() for money.
+- "suggested" holds things that must be TRUE when the run finishes.
+  "suggested_forbidden" holds conditions that must NEVER be true -- the run
+  fails if one of them holds. So write the bad state itself, plainly:
+      forbidden: bills.amount <= 0            <- correct
+      forbidden: not (bills.amount <= 0)      <- WRONG, that forbids the
+                                                 normal case
+  If you catch yourself writing "not" at the start of a forbidden check, you
+  want it in "suggested" without the "not".
 - Prefer checks about what must NOT have happened. A recording of a successful
   run cannot show those, so they are the most valuable thing you can add.
 - If you are not confident a check is correct, leave it out. A wrong check that
@@ -78,8 +88,9 @@ RESPONSE_SHAPE = """\
   "workflow_name": "snake_case name for this workflow",
   "description": "one sentence describing what must be true when it is done",
   "explanations": [{"id": "existing_assertion_id", "because": "why it matters"}],
-  "suggested": [{"id": "snake_case_id", "assert": "expression", "because": "why"}],
-  "suggested_forbidden": [{"id": "snake_case_id", "assert": "expression", "because": "why"}]
+  "suggested": [{"id": "snake_case_id", "assert": "must be true", "because": "why"}],
+  "suggested_forbidden": [{"id": "snake_case_id", "assert": "must never be true",
+                           "because": "why"}]
 }"""
 
 
@@ -222,7 +233,15 @@ def _validate(
         len(draft.comparisons) + len(draft.constants))}
     # Grows as suggestions are accepted, so a model cannot get the same check
     # in twice by wording it differently the second time.
-    seen_expressions = {_canonical_text(e) for e in _existing_expressions(draft)}
+    seen_expressions = set()
+    for expression in _existing_expressions(draft):
+        seen_expressions.add(_canonical_text(expression))
+        try:
+            shape = _call_shape(parse(expression))
+        except (ExpressionSyntaxError, ValueError):
+            shape = None
+        if shape is not None:
+            seen_expressions.add(shape)
     seen_ids: set[str] = set()
 
     name = data.get("workflow_name")
@@ -301,11 +320,26 @@ def _validate_one(
     if not referenced_roots(tree) - {"inputs"}:
         rejected.append(f"{assertion_id}: reads no observed fact, so it proves nothing")
         return None
+    if forbidden and isinstance(tree, Not):
+        # 'forbid not X' means 'require X', which is never what someone means
+        # when they file a check under 'must never happen'. Written as-is it
+        # would fail every correct run, so it is refused rather than rewritten:
+        # guessing which of two opposite meanings was intended is exactly the
+        # decision a model does not get to make.
+        rejected.append(
+            f"{assertion_id}: a forbidden check starting with 'not' is a double "
+            "negative -- state the condition that must never happen"
+        )
+        return None
+
     canonical = _canonical(tree, forbidden=forbidden)
-    if canonical in seen_expressions:
+    shape = _call_shape(tree)
+    if canonical in seen_expressions or (shape is not None and shape in seen_expressions):
         rejected.append(f"{assertion_id}: restates a check already present")
         return None
     seen_expressions.add(canonical)
+    if shape is not None:
+        seen_expressions.add(shape)
 
     return Suggestion(
         id=assertion_id, expression=render(tree),
@@ -365,6 +399,20 @@ def _canonical(tree: Expr, *, forbidden: bool) -> str:
     ):
         node = replace(node.operand, op=_OPPOSITE_OP[node.operand.op])
     return _normalise(render(node))
+
+
+def _call_shape(tree: Expr) -> str | None:
+    """A function call reduced to its name and the facts it reads.
+
+    ``within(bills.amount, po.total, tolerance = 0.01)`` and the same call
+    with ``tolerance = 999999`` have the same shape. They are one check with
+    two settings, and the second is not a suggestion -- it is an edit to an
+    existing check, which is a person's decision and not a model's.
+    """
+    if not isinstance(tree, Call):
+        return None
+    paths = sorted(render(p) for p in referenced_paths(tree))
+    return f"{tree.name}({', '.join(paths)})" if paths else None
 
 
 def _canonical_text(expression: str) -> str:
