@@ -40,6 +40,22 @@ class RetryPolicy(_Frozen):
     backoff_ms: int = 500
 
 
+class WriteSpec(_Frozen):
+    """Where a consequential node writes, and exactly what it sends.
+
+    Typed rather than a free dictionary, for one reason: this is the object a
+    person approves. An approval is later bound to a hash of the resolved
+    payload, so a payload that could contain anything would make the approval
+    meaningless -- you cannot consent to a shape you cannot see.
+
+    ``payload`` values may interpolate ``{{ inputs.name }}`` and nothing else.
+    """
+
+    connector: str
+    resource: str
+    payload: dict[str, str] = Field(default_factory=dict)
+
+
 class Node(_Frozen):
     id: str
     type: ActionType
@@ -59,6 +75,9 @@ class Node(_Frozen):
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
     timeout_ms: int = 15_000
     approval_required: bool = False
+    write: WriteSpec | None = None
+    """Set on nodes that change the world. Absent on every node that only reads,
+    which is what lets a runtime tell the two apart without guessing."""
 
 
 class Edge(_Frozen):

@@ -21,13 +21,13 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from .pdfgen import render_invoice_pdf
 from .perturb import PERTURBATIONS, apply_perturbations
-from .state import SandboxState, build_seed_state
+from .state import FIXED_TIMESTAMP, Bill, LedgerEvent, SandboxState, build_seed_state
 
 TEMPLATES = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
@@ -73,6 +73,11 @@ class Sandbox:
     def unperturb(self, name: str) -> SandboxState:
         applied = [n for n in self.state.applied_perturbations if n != name]
         return self.set_perturbations(applied)
+
+
+#: FastAPI reads request bodies through a marker in the default. Held as a
+#: module-level singleton so the call is not made in an argument default.
+_BODY: Any = Body(...)
 
 
 def create_app(seed: int = 1) -> FastAPI:
@@ -154,6 +159,47 @@ def create_app(seed: int = 1) -> FastAPI:
             if value:
                 records = [r for r in records if r[field_name] == value]
         return {"records": records, "count": len(records)}
+
+    @app.post("/api/bills", status_code=201)
+    def create_bill(payload: dict[str, Any] = _BODY) -> dict[str, Any]:
+        """The consequential write.
+
+        Everything else in this sandbox is a read. This is the one call that
+        changes the world, which makes it the thing a runtime must be stopped
+        before -- an over-billed invoice is only a mistake until a payable
+        exists for it.
+
+        Deliberately permissive: it does not check that the amount matches the
+        purchase order. A system of record that refused wrong data would make
+        the product pointless, and real ones do not refuse it either.
+        """
+        required = ("vendor", "ref", "number", "amount")
+        missing = [f for f in required if not str(payload.get(f) or "").strip()]
+        if missing:
+            raise HTTPException(
+                status_code=422, detail=f"missing required fields: {', '.join(missing)}"
+            )
+
+        # A duplicate ref is deliberately allowed. It is exactly the failure
+        # this product catches, so the sandbox has to be able to produce one.
+        ref = str(payload["ref"])
+        bill = Bill(
+            id=f"bill_{len(sandbox.state.bills) + 1:04d}",
+            vendor=str(payload["vendor"]),
+            ref=ref,
+            number=str(payload["number"]),
+            amount=str(payload["amount"]),
+            currency=str(payload.get("currency") or "USD"),
+            status=str(payload.get("status") or "DRAFT"),
+            created_at=FIXED_TIMESTAMP,
+        )
+        sandbox.state.bills.append(bill)
+        sandbox.state.events.append(LedgerEvent(
+            id=f"evt_{len(sandbox.state.events) + 1:04d}",
+            kind="bill_created", ref=ref, at=FIXED_TIMESTAMP,
+            detail=f"{bill.currency} {bill.amount} to {bill.vendor}",
+        ))
+        return {"record": asdict(bill)}
 
     @app.get("/api/ledger_events")
     def list_events(ref: str | None = Query(default=None)) -> dict[str, Any]:

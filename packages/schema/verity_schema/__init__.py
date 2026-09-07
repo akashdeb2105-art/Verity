@@ -48,7 +48,7 @@ from .report import (
     VerificationReport,
 )
 from .trace import RuntimeInfo, Trace, TraceArtifact, TraceStep, TraceTarget
-from .workgraph import Edge, Node, RetryPolicy, VariableSpec, WorkGraph
+from .workgraph import Edge, Node, RetryPolicy, VariableSpec, WorkGraph, WriteSpec
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -89,6 +89,7 @@ __all__ = [
     "Verdict",
     "VerificationReport",
     "WorkGraph",
+    "WriteSpec",
     "__version__",
     "expr",
     "get_version",

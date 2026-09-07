@@ -1,7 +1,12 @@
-"""Read-only connectors: typed access to systems of record.
+"""Connectors: typed access to systems of record.
 
-There is no write path in this package. Verification never writes; the single
-controlled side-effect path belongs to the runtime, in a later milestone.
+Reading and writing are separate protocols and separate types. Verification
+depends only on the read side, so no refactoring inside it can reach a write
+-- the boundary is enforced by the type system rather than by a convention.
+
+Every write passes through a :class:`WriteGuard`, which in dry-run mode
+records the intent and performs nothing. That is what makes "point it at your
+real system and see what it would do" a safe sentence.
 """
 
 from .base import (
@@ -23,7 +28,18 @@ from .sandbox import (
     build_sandbox_registry,
     inbox_connector,
     ledger_connector,
+    ledger_writer,
     purchase_order_connector,
+)
+from .write import (
+    HttpWriteConnector,
+    WritableConnector,
+    WriteGuard,
+    WriteIntent,
+    WriteMode,
+    WriteRefusedError,
+    WriteResult,
+    payload_digest,
 )
 
 __all__ = [
@@ -38,11 +54,20 @@ __all__ = [
     "DocumentConnector",
     "DocumentRef",
     "HttpJsonConnector",
+    "HttpWriteConnector",
     "ReadResult",
     "ResourceNotFoundError",
     "ResourceRoute",
+    "WritableConnector",
+    "WriteGuard",
+    "WriteIntent",
+    "WriteMode",
+    "WriteRefusedError",
+    "WriteResult",
     "build_sandbox_registry",
     "inbox_connector",
     "ledger_connector",
+    "ledger_writer",
+    "payload_digest",
     "purchase_order_connector",
 ]

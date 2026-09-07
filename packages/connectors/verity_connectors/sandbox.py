@@ -12,6 +12,7 @@ import httpx
 
 from .base import ConnectorRegistry
 from .http_connector import DocumentConnector, HttpJsonConnector, ResourceRoute
+from .write import HttpWriteConnector
 
 DEFAULT_SANDBOX_URL = "http://127.0.0.1:8099"
 
@@ -75,3 +76,21 @@ def build_sandbox_registry(
     registry.register(inbox_connector(base_url, client))
     registry.register(DocumentConnector(base_url, client))
     return registry
+
+
+def ledger_writer(
+    base_url: str = DEFAULT_SANDBOX_URL, client: httpx.Client | None = None
+) -> HttpWriteConnector:
+    """The sandbox's one consequential write: creating a bill.
+
+    Deliberately its own object rather than a capability bolted onto the
+    ledger reader. The runtime holds this; the verifier cannot -- it is not
+    reachable from anything the verifier imports.
+    """
+    return HttpWriteConnector(
+        name="ledger",
+        base_url=base_url,
+        routes={"bill": "/api/bills"},
+        channel="api",
+        client=client,
+    )
