@@ -51,7 +51,7 @@ class FakeProvider:
 
 @pytest.fixture()
 def draft_and_steps() -> tuple[Any, list[Any]]:
-    steps = normalize(read_session(FIXTURE))
+    steps = normalize(read_session(FIXTURE), FIXTURE)
     return propose(steps, name="invoice_to_po"), steps
 
 
@@ -78,11 +78,11 @@ def test_a_sound_suggestion_is_kept(draft_and_steps: Any) -> None:
 def test_a_better_explanation_is_kept(draft_and_steps: Any) -> None:
     result = _enrich(draft_and_steps, {
         "explanations": [{
-            "id": "amount_matches_total",
+            "id": "bills_amount_matches_purchase_orders_total",
             "because": "A bill above the authorised amount is how overpayment happens.",
         }]
     })
-    assert "overpayment" in result.explanations["amount_matches_total"]
+    assert "overpayment" in result.explanations["bills_amount_matches_purchase_orders_total"]
 
 
 def test_a_suggested_name_and_description_are_kept(draft_and_steps: Any) -> None:
@@ -155,7 +155,7 @@ def test_a_duplicate_id_is_discarded(draft_and_steps: Any) -> None:
 
 def test_a_suggestion_reusing_an_existing_id_is_discarded(draft_and_steps: Any) -> None:
     result = _enrich(draft_and_steps, {"suggested": [
-        {"id": "amount_matches_total", "assert": 'bills.status != "PAID"'},
+        {"id": "bills_amount_matches_purchase_orders_total", "assert": 'bills.status != "PAID"'},
     ]})
     assert result.suggestions == []
 
@@ -195,7 +195,7 @@ def test_page_text_is_delimited_and_labelled_as_data(draft_and_steps: Any) -> No
         ),
         (
             "an attempt to weaken an existing check",
-            {"id": "amount_matches_total",
+            {"id": "bills_amount_matches_purchase_orders_total",
              "assert": "within(bills.amount, purchase_orders.total, tolerance = 999999)"},
         ),
     ],
@@ -251,7 +251,7 @@ def test_a_provider_failure_degrades_to_nothing(draft_and_steps: Any) -> None:
     assert "403" in (result.error or "")
 
     text = to_yaml(draft, result)
-    assert "amount_matches_total" in text  # the derived checks are untouched
+    assert "bills_amount_matches_purchase_orders_total" in text  # the derived checks are untouched
 
 
 def test_the_budget_stops_runaway_calls(draft_and_steps: Any) -> None:
@@ -313,3 +313,28 @@ def test_a_model_cannot_get_one_check_in_twice_by_rewording_it(
 
     assert [s.id for s in result.suggestions] == ["amount_is_positive"]
     assert any("restates" in line for line in result.rejected)
+
+
+def test_a_forbidden_check_written_as_a_double_negative_is_discarded(
+    draft_and_steps: tuple[Any, list[Any]],
+) -> None:
+    """'Forbid not X' means 'require X', and would fail every correct run.
+
+    A real model produced exactly this: it meant "a bill for nothing must
+    never be created" and wrote ``not (bills.amount <= 0)`` under forbidden,
+    which forbids every bill with a positive amount. The intent is obvious to
+    a reader, and it is still refused rather than rewritten -- choosing
+    between two opposite meanings is the decision a model does not get.
+    """
+    result = _enrich(draft_and_steps, {
+        "suggested_forbidden": [
+            {
+                "id": "no_zero_or_negative_bill",
+                "assert": "not (bills.amount <= 0)",
+                "because": "a bill for nothing is a data-entry failure",
+            },
+        ],
+    })
+
+    assert result.suggestions == []
+    assert any("double negative" in line for line in result.rejected)

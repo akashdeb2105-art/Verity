@@ -26,6 +26,17 @@ FIXTURE = (
 
 @pytest.fixture()
 def steps() -> list:
+    """The recording compiled with its documents, as the CLI compiles it."""
+    return normalize(read_session(FIXTURE), FIXTURE)
+
+
+@pytest.fixture()
+def steps_without_documents() -> list:
+    """The same recording compiled without access to the documents on disk.
+
+    Passing no path is how a caller says 'I have the events but not the
+    files'. What the compiler must not do then is guess.
+    """
     return normalize(read_session(FIXTURE))
 
 
@@ -57,7 +68,7 @@ def test_reads_are_low_risk(steps: list) -> None:
 
 
 def test_systems_are_derived_from_the_address(steps: list) -> None:
-    assert {s.system for s in steps} == {"inbox", "purchase_orders", "bills", "document"}
+    assert {s.system for s in steps} == {"inbox", "purchase_orders", "bills", "doc"}
 
 
 @pytest.mark.parametrize(
@@ -73,12 +84,50 @@ def test_system_naming(url: str | None, expected: str | None) -> None:
     assert system_of(url) == expected
 
 
-def test_an_opened_document_carries_no_values_from_the_page_behind_it(steps: list) -> None:
+def test_an_opened_document_carries_no_values_from_the_page_behind_it(
+    steps_without_documents: list,
+) -> None:
     """The click happens on the linking page. That page's text is on screen but
     it is not the document's content, and treating it as such invents
     comparisons the person never made."""
-    document = next(s for s in steps if s.note == "document-not-read")
+    document = next(s for s in steps_without_documents if s.note == "document-not-read")
     assert document.observed == {}
+
+
+def test_a_fetched_document_yields_its_own_fields(steps: list) -> None:
+    """The invoice is read from the file, not from the page that linked to it.
+
+    This is the independent channel the whole product rests on: the PDF was
+    not written by the ERP, so a value that agrees with the ERP is evidence
+    rather than a system confirming itself.
+    """
+    document = next(s for s in steps if s.system == "doc")
+
+    assert document.observed == {
+        "total": "14800.00",
+        "number": "INV-4471",
+        "vendor": "Acme Supplies",
+        "po_ref": "PO-2211",
+        "date": "2026-08-12",
+    }
+    # Cited by content, so a contract can say which bytes it read.
+    assert len(document.document_sha256) == 64
+    assert document.document_url.endswith("/docs/invoices/INV-4471.pdf")
+    # Nothing from the inbox page leaked in with it.
+    assert "inbox-subject" not in document.observed
+
+
+def test_reading_the_document_is_what_produces_the_invoice_comparison(
+    steps: list, steps_without_documents: list
+) -> None:
+    """The check that matters only exists because the document was read."""
+
+    def pairs(compiled: list) -> set:
+        _, comparisons, _ = analyse(compiled)
+        return {(c.left_system, c.right_system) for c in comparisons}
+
+    assert ("doc", "purchase_orders") in pairs(steps)
+    assert not any("doc" in pair for pair in pairs(steps_without_documents))
 
 
 def test_compilation_is_deterministic() -> None:
@@ -178,7 +227,7 @@ def test_graph_summary(steps: list) -> None:
 def test_the_proposed_contract_is_valid_and_typechecks(steps: list) -> None:
     """A draft nobody can run is worse than no draft."""
     checked = typecheck(load_contract_text(to_yaml(propose(steps, name="t")), origin="draft"))
-    assert len(checked.assertions) == 3
+    assert len(checked.assertions) == 7
 
 
 def test_every_proposed_assertion_is_strong(steps: list) -> None:
@@ -193,10 +242,44 @@ def test_the_draft_says_it_is_a_draft(steps: list) -> None:
         assert unobservable in text
 
 
-def test_the_draft_admits_it_did_not_read_the_document(steps: list) -> None:
-    draft = propose(steps, name="t")
+def test_the_draft_admits_it_did_not_read_the_document(
+    steps_without_documents: list,
+) -> None:
+    """When the file is not there, the draft says so instead of going quiet."""
+    draft = propose(steps_without_documents, name="t")
     assert any("document was opened" in note for note in draft.notes)
     assert "INV-4471.pdf" in " ".join(draft.notes)
+
+
+def test_the_draft_says_nothing_about_unread_documents_when_it_read_them(
+    steps: list,
+) -> None:
+    draft = propose(steps, name="t")
+    assert not any("document was opened" in note for note in draft.notes)
+    assert draft.document is not None
+    assert draft.document.url == "/docs/invoices/INV-4471.pdf"
+
+
+def test_the_document_fact_is_a_document_not_a_connector(steps: list) -> None:
+    """A PDF is read from bytes, not queried through an API.
+
+    Writing it as a connector would produce a contract that cannot run, and
+    would hide the one property that makes the comparison meaningful.
+    """
+    text = to_yaml(propose(steps, name="t"))
+
+    assert "doc: { kind: document, format: pdf }" in text
+    assert "capability: doc" not in text
+    # The host belongs to the binding, not the contract.
+    assert "http://sandbox" not in text
+
+
+def test_every_proposed_assertion_has_a_distinct_id(steps: list) -> None:
+    """Two systems can hold the same field name; two checks cannot share a name."""
+    import re
+
+    ids = re.findall(r"- id: (\S+)", to_yaml(propose(steps, name="t")))
+    assert len(ids) == len(set(ids))
 
 
 def test_the_draft_leaves_forbidden_empty_rather_than_guessing(steps: list) -> None:

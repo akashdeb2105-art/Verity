@@ -1,5 +1,16 @@
 {
   "apiVersion": "verity/v1",
+  "attachments": [
+    {
+      "byte_count": 2112,
+      "error": "",
+      "filename": "INV-4471.pdf",
+      "media_type": "application/pdf",
+      "sha256": "43fdfa91ac35b9332f682341e008348bedf2bc80e3084a88a12769acc2e28411",
+      "source_event": 4,
+      "url": "http://sandbox/docs/invoices/INV-4471.pdf"
+    }
+  ],
   "events": [
     {
       "document_ref": null,
@@ -40,6 +51,7 @@
         "css": [
           "[data-testid=\"inbox-subject\"]"
         ],
+        "href": null,
         "input_type": null,
         "label": null,
         "name": null,
@@ -70,6 +82,7 @@
         "css": [
           "[data-testid=\"inbox-row\"] > td:nth-of-type(4) > a"
         ],
+        "href": "/docs/invoices/INV-4471.pdf",
         "input_type": null,
         "label": "INV-4471.pdf",
         "name": "INV-4471.pdf",
@@ -116,6 +129,7 @@
         "css": [
           "[data-testid=\"po-total\"]"
         ],
+        "href": null,
         "input_type": null,
         "label": null,
         "name": null,
@@ -154,6 +168,7 @@
         "css": [
           "[data-testid=\"po-vendor\"]"
         ],
+        "href": null,
         "input_type": null,
         "label": null,
         "name": null,
@@ -208,6 +223,7 @@
         "css": [
           "[data-testid=\"bill-amount\"]"
         ],
+        "href": null,
         "input_type": null,
         "label": null,
         "name": null,
@@ -242,6 +258,7 @@
         "css": [
           "[data-testid=\"bill-status\"]"
         ],
+        "href": null,
         "input_type": null,
         "label": null,
         "name": null,
@@ -276,6 +293,7 @@
         "css": [
           "[data-testid=\"submit-bill\"]"
         ],
+        "href": null,
         "input_type": "submit",
         "label": "Create Bill",
         "name": "Create Bill",
@@ -312,6 +330,22 @@
       "note": "teaching session ended",
       "screenshot_ref": null,
       "seq": 12,
+      "title": null,
+      "ts": null,
+      "url": null,
+      "value": null,
+      "value_redacted": false,
+      "visible_text": {}
+    },
+    {
+      "document_ref": null,
+      "dom_hash": null,
+      "element": null,
+      "kind": "session_end",
+      "network": {},
+      "note": "teaching session ended",
+      "screenshot_ref": null,
+      "seq": 13,
       "title": null,
       "ts": null,
       "url": null,

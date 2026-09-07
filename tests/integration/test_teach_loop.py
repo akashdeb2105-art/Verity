@@ -32,7 +32,7 @@ DEMO_INPUTS = {"invoice_number": "INV-4471", "po_number": "PO-2211"}
 @pytest.fixture()
 def proposed_contract() -> str:
     """The draft, with the single rename the draft itself asks for."""
-    steps = normalize(read_session(FIXTURE))
+    steps = normalize(read_session(FIXTURE), FIXTURE)
     return to_yaml(propose(steps, name="invoice_to_po_recorded")).replace(
         "capability: bills", "capability: accounting"
     )
@@ -59,8 +59,8 @@ def test_it_proves_the_amount_the_ledger_holds_matches_the_purchase_order(
 ) -> None:
     report = _verify(proposed_contract, registry)
     ids = {a.id for a in report.assertions if a.passed}
-    assert "amount_matches_total" in ids
-    assert "vendor_matches" in ids
+    assert "bills_amount_matches_purchase_orders_total" in ids
+    assert "bills_vendor_matches_purchase_orders" in ids
     assert "bills_status_is_draft" in ids
 
 
@@ -87,22 +87,44 @@ def test_it_catches_an_ambiguous_purchase_order(
     assert "purchase_orders" in {f.id for f in report.unresolved_facts}
 
 
-def test_the_document_perturbation_is_honestly_missed(
+def test_the_draft_catches_a_changed_invoice_total(
     proposed_contract: str, registry: Any, sandbox_client: Any
 ) -> None:
-    """An honest negative result, asserted so it cannot quietly change.
+    """The flagship case, caught by a contract nobody wrote by hand.
 
-    The person opened the invoice but Verity could not read inside it, so no
-    document fact exists and a changed invoice total is invisible to this
-    draft. The draft says exactly that in a TODO, and the hand-written
-    reference contract -- which does read the document -- catches it.
+    The invoice is altered so it no longer agrees with the purchase order it
+    was raised against. Nothing in the recording demonstrated this -- the
+    person only ever did the task correctly -- and the check exists because
+    the recording carried the invoice itself, so the compiler could see the
+    same total in two places that do not share an author.
+
+    This is the property the product is for: an agent that reads only the ERP
+    would see a self-consistent set of screens and report success.
     """
     sandbox_client.post("/admin/perturb/amount_changed")
     report = _verify(proposed_contract, registry)
 
-    assert report.verdict.value == "PASS"
-    steps = normalize(read_session(FIXTURE))
-    draft = propose(steps, name="invoice_to_po_recorded")
+    assert report.verdict.value == "FAIL"
+    failed = {a.id for a in report.assertions if not a.passed}
+    assert "doc_total_matches_purchase_orders" in failed
+
+
+def test_the_draft_without_the_document_would_miss_it(
+    registry: Any, sandbox_client: Any
+) -> None:
+    """The counterpart, kept so the value of reading the document is visible.
+
+    Compiled from the same recording but without the file on disk, the draft
+    has no document fact, every ERP screen still agrees with every other, and
+    the altered invoice passes unnoticed. The draft says so rather than
+    letting a reader assume otherwise.
+    """
+    draft = propose(normalize(read_session(FIXTURE)), name="invoice_to_po_recorded")
+    text = to_yaml(draft).replace("capability: bills", "capability: accounting")
+
+    sandbox_client.post("/admin/perturb/amount_changed")
+
+    assert _verify(text, registry).verdict.value == "PASS"
     assert any("document was opened" in note for note in draft.notes)
 
 

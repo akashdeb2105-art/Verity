@@ -43,6 +43,14 @@ ALLOWED: dict[str, str] = {}
 BINARY_SUFFIXES = frozenset({".pdf", ".png", ".jpg", ".webp", ".ico", ".woff", ".woff2"})
 
 
+#: Directories that exist because a tool put them there, not because anyone
+#: wrote them. Only consulted when git cannot be asked what is tracked.
+_NOT_SOURCE = frozenset({
+    ".git", ".venv", "venv", "__pycache__", "node_modules",
+    ".pytest_cache", ".mypy_cache", ".ruff_cache", "build", "dist",
+})
+
+
 def _tracked_files() -> list[Path]:
     """Every file git tracks. Falls back to a walk outside a git checkout."""
     try:
@@ -52,10 +60,14 @@ def _tracked_files() -> list[Path]:
         ).stdout
         names = [n for n in output.split("\0") if n]
     except (subprocess.SubprocessError, FileNotFoundError):  # pragma: no cover
+        # Outside a checkout there is no index to ask, so the tree is walked
+        # instead. Build and cache directories are skipped: they hold copies
+        # of test names and fixtures, and reporting those as findings would
+        # cry wolf about files nobody could ever commit.
         names = [
             str(p.relative_to(REPO_ROOT))
             for p in REPO_ROOT.rglob("*")
-            if p.is_file() and ".git" not in p.parts
+            if p.is_file() and not (set(p.parts) & _NOT_SOURCE)
         ]
     return [REPO_ROOT / n for n in sorted(names)]
 
