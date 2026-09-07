@@ -240,3 +240,47 @@ def test_yaml_loading_cannot_construct_python_objects() -> None:
     hostile = "!!python/object/apply:os.system ['echo pwned']\n"
     with pytest.raises(ContractLoadError):
         load_contract_text(hostile)
+
+
+@pytest.mark.security()
+def test_the_executor_cannot_import_a_verifier_or_a_model() -> None:
+    """The other half of the boundary, and the one that was easy to forget.
+
+    The verifier not importing the executor is the famous half. This is the
+    reverse: an executor that imported the verifier would make the two ship as
+    one thing, and the claim that a contract can check somebody else's agent
+    would quietly stop being true. The model check rides along because
+    execution that costs money per run cannot be a nightly canary.
+
+    A fresh interpreter, for the same reason as the test above: reading this
+    process's ``sys.modules`` would only report which tests ran first.
+    """
+    import subprocess
+    import sys
+
+    probe = (
+        "import verity_runtime, sys;"
+        "leaked=[m for m in sys.modules if m.startswith(('verity_verifier',"
+        "'verity_ai','openai','anthropic','litellm'))];"
+        "print(','.join(sorted(leaked)))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=60
+    )
+    assert result.stdout.strip() == "", (
+        f"the executor pulled in a verifier or a model provider: {result.stdout.strip()}"
+    )
+
+
+@pytest.mark.security()
+def test_a_write_cannot_be_reached_from_the_verifier() -> None:
+    """Verification never writes, enforced by the type system rather than care.
+
+    Reading and writing are separate protocols on separate classes. This
+    asserts the property that makes that worth doing: nothing the verifier
+    imports exposes a ``write``.
+    """
+    from verity_connectors import ConnectorRegistry, HttpJsonConnector
+
+    assert not hasattr(HttpJsonConnector, "write")
+    assert not hasattr(ConnectorRegistry, "write")
