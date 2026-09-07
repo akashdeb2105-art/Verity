@@ -25,6 +25,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
+from .injections import BY_NAME, INJECTIONS, plant
 from .pdfgen import render_invoice_pdf
 from .perturb import PERTURBATIONS, apply_perturbations
 from .state import FIXED_TIMESTAMP, Bill, LedgerEvent, SandboxState, build_seed_state
@@ -274,6 +275,26 @@ def create_app(seed: int = 1) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"unknown perturbation '{name}'")
         state = sandbox.perturb(name)
         return {"applied": state.applied_perturbations, "state_hash": state.hash()}
+
+    @app.get("/admin/injections")
+    def admin_injections() -> dict[str, Any]:
+        return {"injections": [
+            {"name": i.name, "goal": i.goal} for i in INJECTIONS
+        ]}
+
+    @app.post("/admin/inject/{name}")
+    def admin_inject(name: str) -> dict[str, Any]:
+        """Plant one adversarial payload in the free text of the current state.
+
+        Separate from the perturbations because it is a different kind of
+        thing: a perturbation breaks the facts, an injection leaves every fact
+        correct and tries to change what the reader does about them.
+        """
+        if name not in BY_NAME:
+            raise HTTPException(status_code=404, detail=f"unknown injection '{name}'")
+        injection = plant(sandbox.state, name)
+        return {"planted": injection.name, "goal": injection.goal,
+                "state_hash": sandbox.state.hash()}
 
     @app.post("/admin/unperturb/{name}")
     def admin_unperturb(name: str) -> dict[str, Any]:
