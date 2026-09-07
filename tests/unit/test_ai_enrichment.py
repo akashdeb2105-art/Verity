@@ -259,3 +259,57 @@ def test_the_budget_stops_runaway_calls(draft_and_steps: Any) -> None:
     result = enrich(draft, steps, FakeProvider({}), budget=Budget(max_calls=0))
     assert not result.ok
     assert "budget" in (result.error or "")
+
+
+def test_a_forbidden_assertion_that_negates_an_existing_check_is_discarded(
+    draft_and_steps: tuple[Any, list[Any]],
+) -> None:
+    """Forbidding the opposite of a derived check is that check, reworded.
+
+    The recording ends with the bill in DRAFT, and the draft already asserts
+    it. 'The status must never be anything other than DRAFT' says the same
+    thing with the sign flipped, and a model that offers it is padding, not
+    finding. This exact suggestion came back from a real model.
+    """
+    result = _enrich(draft_and_steps, {
+        "suggested_forbidden": [
+            {
+                "id": "status_not_draft",
+                "assert": 'bills.status != "DRAFT"',
+                "because": "the bill must stay a draft",
+            },
+        ],
+    })
+
+    assert result.suggestions == []
+    assert any("restates" in line for line in result.rejected)
+
+
+def test_a_model_cannot_get_one_check_in_twice_by_rewording_it(
+    draft_and_steps: tuple[Any, list[Any]],
+) -> None:
+    """Two spellings of 'the amount is positive' are one suggestion.
+
+    A real model returned both at once: a positive assertion and a forbidden
+    non-positive one. Only the first survives, because each accepted
+    suggestion joins the set the next is checked against.
+    """
+    result = _enrich(draft_and_steps, {
+        "suggested": [
+            {
+                "id": "amount_is_positive",
+                "assert": "bills.amount > 0",
+                "because": "a bill for nothing is a data error",
+            },
+        ],
+        "suggested_forbidden": [
+            {
+                "id": "amount_not_zero_or_less",
+                "assert": "bills.amount <= 0",
+                "because": "a bill for nothing is a data error",
+            },
+        ],
+    })
+
+    assert [s.id for s in result.suggestions] == ["amount_is_positive"]
+    assert any("restates" in line for line in result.rejected)

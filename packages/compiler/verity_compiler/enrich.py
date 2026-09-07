@@ -30,12 +30,15 @@ achieve is a discarded suggestion.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from verity_ai import Budget, Completion, Provider, ProviderError
 from verity_schema.expr import (
+    Compare,
+    Expr,
     ExpressionSyntaxError,
+    Not,
     parse,
     referenced_roots,
     render,
@@ -216,9 +219,9 @@ def _validate(
     known_facts = set(draft.systems) | {"inputs"}
     existing_ids = {_existing_id(draft, i) for i in range(
         len(draft.comparisons) + len(draft.constants))}
-    existing_expressions = {
-        _normalise(e) for e in _existing_expressions(draft)
-    }
+    # Grows as suggestions are accepted, so a model cannot get the same check
+    # in twice by wording it differently the second time.
+    seen_expressions = {_canonical_text(e) for e in _existing_expressions(draft)}
     seen_ids: set[str] = set()
 
     name = data.get("workflow_name")
@@ -240,7 +243,7 @@ def _validate(
     for forbidden, key in ((False, "suggested"), (True, "suggested_forbidden")):
         for item in _as_list(data.get(key)):
             suggestion = _validate_one(
-                item, known_facts, existing_ids | seen_ids, existing_expressions,
+                item, known_facts, existing_ids | seen_ids, seen_expressions,
                 forbidden=forbidden, rejected=result.rejected,
             )
             if suggestion is not None:
@@ -254,7 +257,7 @@ def _validate_one(
     item: dict[str, Any],
     known_facts: set[str],
     taken_ids: set[str],
-    existing_expressions: set[str],
+    seen_expressions: set[str],
     *,
     forbidden: bool,
     rejected: list[str],
@@ -297,9 +300,11 @@ def _validate_one(
     if not referenced_roots(tree) - {"inputs"}:
         rejected.append(f"{assertion_id}: reads no observed fact, so it proves nothing")
         return None
-    if _normalise(render(tree)) in existing_expressions:
-        rejected.append(f"{assertion_id}: restates a check already derived")
+    canonical = _canonical(tree, forbidden=forbidden)
+    if canonical in seen_expressions:
+        rejected.append(f"{assertion_id}: restates a check already present")
         return None
+    seen_expressions.add(canonical)
 
     return Suggestion(
         id=assertion_id, expression=render(tree),
@@ -321,3 +326,49 @@ def _is_identifier(text: str) -> bool:
 
 def _normalise(expression: str) -> str:
     return " ".join(expression.split())
+
+
+#: Each comparison paired with the one that means exactly the opposite.
+_OPPOSITE_OP = {
+    "==": "!=", "!=": "==",
+    ">": "<=", "<=": ">",
+    "<": ">=", ">=": "<",
+}
+
+
+def _canonical(tree: Expr, *, forbidden: bool) -> str:
+    """Render a check in a form that its own negation also renders to.
+
+    A forbidden assertion names a state that must never hold, so
+    ``forbid amount <= 0`` and ``expect amount > 0`` are one check written two
+    ways -- as are ``forbid status != "DRAFT"`` and ``expect status ==
+    "DRAFT"``. Flipping the comparison of a forbidden assertion puts both
+    spellings into the same text, which is what lets the duplicate be seen.
+
+    This is deliberately not a general equivalence test. It handles the one
+    rewriting models actually do, and anything cleverer would be a solver
+    pretending to be a validator.
+    """
+    node = tree
+    if forbidden:
+        if isinstance(node, Not):
+            node = node.operand
+        elif isinstance(node, Compare) and node.op in _OPPOSITE_OP:
+            node = replace(node, op=_OPPOSITE_OP[node.op])
+        else:
+            node = Not(node)
+    elif (
+        isinstance(node, Not)
+        and isinstance(node.operand, Compare)
+        and node.operand.op in _OPPOSITE_OP
+    ):
+        node = replace(node.operand, op=_OPPOSITE_OP[node.operand.op])
+    return _normalise(render(node))
+
+
+def _canonical_text(expression: str) -> str:
+    """The canonical form of an assertion already in the draft."""
+    try:
+        return _canonical(parse(expression), forbidden=False)
+    except (ExpressionSyntaxError, ValueError):
+        return _normalise(expression)
