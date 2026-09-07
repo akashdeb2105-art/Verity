@@ -1,0 +1,62 @@
+# The AP workflow, as something that executes.
+#
+# The companion to examples/contracts/invoice_to_po.yaml: that file says what
+# must be true, this one says how the work gets done. They are separate
+# artifacts on purpose -- a contract can check a run this graph did not
+# produce, which is the whole portability claim.
+#
+#   verity dry-run examples/workgraphs/invoice_to_po.yaml \
+#     --contract examples/contracts/invoice_to_po.yaml \
+#     --input invoice_number=INV-4471 --input po_number=PO-2211
+
+apiVersion: verity/v1
+kind: WorkGraph
+name: invoice_to_po
+version: 0.1.0
+contract_ref: examples/contracts/invoice_to_po.yaml
+
+variables:
+  - { name: invoice_number, type: string, source_kind: input, label: OBSERVED }
+  - { name: po_number, type: string, source_kind: input, label: OBSERVED }
+
+nodes:
+  - id: open_inbox
+    type: NAVIGATE
+    label: Open the inbox
+    intent: find the message carrying the invoice
+
+  - id: read_invoice
+    type: EXTRACT
+    label: Read the invoice document
+    intent: the invoice is the independent channel -- the ERP did not write it
+    outputs: [invoice_total, invoice_vendor]
+
+  - id: read_purchase_order
+    type: EXTRACT
+    label: Read the purchase order
+    intent: what was actually authorised
+    outputs: [po_total, po_vendor]
+
+  # The only node that changes anything. Everything above it looks; this one
+  # acts, and it is the reason the run is verified before it is reached.
+  - id: create_bill
+    type: CREATE_RECORD
+    label: Create the draft bill
+    intent: raise a payable against the purchase order
+    risk: MEDIUM
+    approval_required: true
+    write:
+      connector: ledger
+      resource: bill
+      payload:
+        vendor: Acme Supplies
+        ref: "{{ inputs.invoice_number }}"
+        number: "{{ inputs.invoice_number }}"
+        amount: "14800.00"
+        currency: USD
+        status: DRAFT
+
+edges:
+  - { from: open_inbox, to: read_invoice }
+  - { from: read_invoice, to: read_purchase_order }
+  - { from: read_purchase_order, to: create_bill }

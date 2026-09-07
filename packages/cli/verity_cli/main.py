@@ -38,6 +38,7 @@ from verity_verifier import (
 
 from .output import Printer, render_report
 from .reporters import github_annotations, summary_markdown, write_json, write_junit
+from .run import add_run_commands
 from .teach import add_arguments as add_teach_arguments
 from .teach import cmd_inspect, cmd_teach
 
@@ -127,6 +128,8 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_cmd.add_argument("--ai-model")
     inspect_cmd.add_argument("--no-color", action="store_true")
     inspect_cmd.set_defaults(handler=cmd_inspect)
+
+    add_run_commands(sub)
 
     doctor_cmd = sub.add_parser("doctor", help="check the local environment")
     doctor_cmd.add_argument("--sandbox-url", default=_default_sandbox_url())
