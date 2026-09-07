@@ -19,6 +19,27 @@ To compile a recording again later, without recording anything new:
 verity inspect invoice.session.json --contract draft.yaml --graph graph.json
 ```
 
+## Documents
+
+When the demonstration opens a document, Verity fetches it and keeps it with
+the recording, stored under its own sha256 in a folder beside the session
+file. The link does not navigate: the browser stays where it was, so the
+demonstration is not derailed into a PDF viewer.
+
+This is the part that makes the rest worth doing. In an accounts-payable
+workflow the invoice is the one source the ERP did not write, so comparing
+them is evidence; comparing two ERP screens is a system agreeing with itself.
+Reading the invoice is what turns a draft of three assertions into seven,
+including the one that catches an invoice whose total no longer matches the
+purchase order it was raised against.
+
+Extraction is deterministic -- label proximity and layout, no model -- because
+a fact only a model can produce is INFERRED, and an INFERRED fact cannot
+satisfy a STRONG assertion.
+
+A document that could not be fetched, or could not be read, is recorded as a
+failed attachment and the draft says so. It is never quietly absent.
+
 ## The core calls no model
 
 Every step, variable and assertion is derived from a value that literally

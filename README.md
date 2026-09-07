@@ -220,6 +220,12 @@ The draft says so itself. A single successful run cannot show duplicates,
 forbidden outcomes, branches or tolerances, and the file opens by listing
 exactly that.
 
+If the demonstration opened a document, Verity keeps it and reads it. That is
+the difference between a contract that compares two screens the same system
+wrote and one that compares the invoice to the order -- and it is why the
+generated contract catches an altered invoice that every ERP screen agrees
+about.
+
 Add `--ai` and a model suggests the checks nobody demonstrated — but it only
 ever **proposes**. Every suggestion must parse, may reference only facts the
 recording established, and is written into the file commented out; accepting

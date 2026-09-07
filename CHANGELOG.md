@@ -35,6 +35,18 @@ once and propose the contract itself.
   duplicates, forbidden outcomes, branches, tolerances — and names any document
   that was opened but not read.
 
+**The document channel**
+- A demonstration that opens a document now keeps it: fetched through the
+  recording's own browser context, so a file behind a login is reachable, and
+  stored content-addressed beside the session. Verified against its recorded
+  hash when read back.
+- The compiler extracts fields from it deterministically and proposes checks
+  across it, which is what lets a generated contract catch an invoice that
+  disagrees with its purchase order -- the case the ERP screens cannot show,
+  because they all agree with each other.
+- Reading the reference recording's invoice takes the proposed contract from
+  3 assertions to 7.
+
 **Model layer** (`verity_ai`)
 - Provider-agnostic: OpenRouter, Google AI Studio, any OpenAI-compatible
   endpoint, and local Ollama. Budget ceilings on calls, input size and cost.
