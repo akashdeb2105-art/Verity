@@ -76,6 +76,7 @@ packages = [
   "packages/ai/verity_ai",
   "packages/capture/verity_capture",
   "packages/compiler/verity_compiler",
+  "packages/runtime/verity_runtime",
   "packages/verifier/verity_verifier",
   "packages/cli/verity_cli",
   "apps/sandbox/verity_sandbox",
@@ -98,7 +99,7 @@ ignore = ["S101"]  # assert is fine in tests and in internal invariants
 python_version = "3.10"
 strict = true
 warn_unreachable = true
-mypy_path = "packages/ai:packages/schema:packages/evidence:packages/connectors:packages/extract:packages/capture:packages/compiler:packages/verifier:packages/cli:apps/sandbox"
+mypy_path = "packages/ai:packages/schema:packages/evidence:packages/connectors:packages/extract:packages/capture:packages/compiler:packages/runtime:packages/verifier:packages/cli:apps/sandbox"
 exclude = ["^tests/", "^bench/"]
 
 [[tool.mypy.overrides]]

@@ -3,8 +3,9 @@
 # boundary cannot be violated even once.
 
 [importlinter]
-# The executor packages named below do not exist yet. Declaring the boundary
-# before they are written is the point: it cannot be violated even once.
+# Several of these contracts were written before the packages they constrain
+# existed. That was the point: a boundary declared first cannot be violated
+# even once, and none of them has been.
 include_external_packages = True
 root_packages =
     verity_schema
@@ -14,6 +15,7 @@ root_packages =
     verity_verifier
     verity_capture
     verity_compiler
+    verity_runtime
     verity_ai
     verity_cli
     verity_sandbox
@@ -27,6 +29,7 @@ forbidden_modules =
     verity_runtime
     verity_capture
     verity_compiler
+    verity_runtime
     verity_ai
     verity_cli
     verity_sandbox
@@ -58,6 +61,7 @@ forbidden_modules =
     verity_verifier
     verity_capture
     verity_compiler
+    verity_runtime
     verity_ai
     verity_cli
     verity_sandbox
@@ -103,3 +107,25 @@ forbidden_modules =
     verity_connectors
     verity_extract
     verity_cli
+
+[importlinter:contract:runtime-and-verifier-are-independent]
+name = The runtime and the verifier must not know about each other
+type = forbidden
+source_modules =
+    verity_runtime
+    verity_verifier
+forbidden_modules =
+    verity_verifier
+    verity_runtime
+allow_indirect_imports = False
+
+[importlinter:contract:execution-is-deterministic]
+name = The executor must never reach a model provider
+type = forbidden
+source_modules = verity_runtime
+forbidden_modules =
+    verity_ai
+    openai
+    anthropic
+    litellm
+allow_indirect_imports = False
