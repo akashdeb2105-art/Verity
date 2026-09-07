@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from .audit import AuditLog
+from .audit import verify as verify_audit
 from .ports import GateResult, GateVerdict
 
 
@@ -97,6 +99,9 @@ class RunReport:
     inputs: dict[str, str] = field(default_factory=dict)
     model_calls: int = 0
     cost_usd: float = 0.0
+    audit: AuditLog = field(default_factory=AuditLog)
+    """Every decision in the run, chained. See :mod:`verity_runtime.audit` for
+    what a hash chain does and does not prove."""
 
     @property
     def runtime_said(self) -> str:
@@ -135,6 +140,15 @@ class RunReport:
         """The steps that were reached, in order. Two replays must match exactly."""
         return [s.node_id for s in self.steps if s.reached]
 
+    @property
+    def audit_head(self) -> str:
+        """The value an external anchor would record to detect a later rewrite."""
+        return self.audit.head
+
+    @property
+    def audit_intact(self) -> bool:
+        return verify_audit(self.audit).intact
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "graph": self.graph_name,
@@ -151,6 +165,8 @@ class RunReport:
             "node_sequence": self.node_sequence,
             "writes_performed": [s.node_id for s in self.writes_performed],
             "budgets": {"model_calls": self.model_calls, "cost_usd": self.cost_usd},
+            "audit": {"entries": len(self.audit), "head": self.audit_head,
+                      "intact": self.audit_intact},
             "steps": [
                 {
                     "index": s.index, "node": s.node_id, "action": s.action,

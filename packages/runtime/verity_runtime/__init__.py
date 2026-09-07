@@ -19,6 +19,9 @@ from .approval import (
     NoApprovals,
     check_approval,
 )
+from .audit import GENESIS, AuditEntry, AuditLog, AuditVerification
+from .audit import verify as verify_audit
+from .control import Budget, FileKillSwitch, KillSwitch, NeverPulled, Stoppable
 from .execute import ExecutionError, PendingWrite, RunOptions, execute, pending_writes
 from .plan import CONSEQUENTIAL, Plan, PlanError, Step, is_consequential, plan
 from .policy import (
@@ -44,18 +47,26 @@ from .report import RunOutcome, RunReport, StepResult
 __all__ = [
     "AMOUNT_FIELDS",
     "CONSEQUENTIAL",
+    "GENESIS",
     "VERB_FLOOR",
     "AlwaysPassGate",
     "Approval",
     "ApprovalCheck",
     "ApprovalStore",
     "Assessment",
+    "AuditEntry",
+    "AuditLog",
+    "AuditVerification",
+    "Budget",
     "ClosedGate",
     "Decision",
     "ExecutionError",
+    "FileKillSwitch",
     "GateResult",
     "GateVerdict",
     "InMemoryApprovalStore",
+    "KillSwitch",
+    "NeverPulled",
     "NoApprovals",
     "PendingWrite",
     "Plan",
@@ -69,6 +80,7 @@ __all__ = [
     "Signal",
     "Step",
     "StepResult",
+    "Stoppable",
     "VerificationGate",
     "check_approval",
     "classify",
@@ -76,4 +88,5 @@ __all__ = [
     "is_consequential",
     "pending_writes",
     "plan",
+    "verify_audit",
 ]

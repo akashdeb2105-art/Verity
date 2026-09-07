@@ -32,6 +32,8 @@ from verity_connectors import (
 from verity_schema.workgraph import Node, WorkGraph, WriteSpec
 
 from .approval import ApprovalStore, NoApprovals, check_approval
+from .audit import AuditLog
+from .control import Budget, KillSwitch, NeverPulled, Stopwatch
 from .plan import Plan, Step
 from .plan import plan as build_plan
 from .policy import Decision, Policy
@@ -72,10 +74,15 @@ class RunOptions:
     approvals: ApprovalStore = field(default_factory=NoApprovals)
     """Where approvals are read from. Empty by default: nothing is pre-approved."""
 
+    budget: Budget = field(default_factory=Budget)
+    """Limits the run may not exceed. Exceeding one stops it; it never truncates."""
+
+    kill_switch: KillSwitch = field(default_factory=NeverPulled)
+    """Asked between steps whether to stop. Nothing is asking, by default."""
+
     registry: ConnectorRegistry | None = None
     writers: dict[str, WritableConnector] = field(default_factory=dict)
     run_id: str = ""
-    max_steps: int = 200
     clock: Clock = time.monotonic
     wall_clock: Clock = time.time
     """Wall time, used only to test approval expiry. Separate from ``clock``,
@@ -144,10 +151,9 @@ def execute(graph: WorkGraph, options: RunOptions | None = None) -> RunReport:
     """
     options = options or RunOptions()
     the_plan = build_plan(graph)
-    if len(the_plan) > options.max_steps:
-        raise ExecutionError(
-            f"{graph.name} plans {len(the_plan)} steps, above the {options.max_steps} limit"
-        )
+    too_many = options.budget.exceeded_by_steps(len(the_plan))
+    if too_many:
+        raise ExecutionError(f"{graph.name}: {too_many}")
 
     report = RunReport(
         graph_name=graph.name,
@@ -156,14 +162,29 @@ def execute(graph: WorkGraph, options: RunOptions | None = None) -> RunReport:
         inputs=dict(options.inputs),
     )
     guard = WriteGuard(mode=options.mode)
-    context = _Context(options=options, guard=guard, report=report)
+    watch = Stopwatch(now=options.clock)
+    watch.start()
+    context = _Context(options=options, guard=guard, report=report, watch=watch)
     report.policy_name = options.policy.name
+    context.audit.run_id = report.run_id
+    context.audit.record(
+        "run_started", at=options.wall_clock(), graph=graph.name,
+        steps=len(the_plan), dry_run=report.dry_run, policy=options.policy.name,
+    )
 
     forbidden = _preflight(context, the_plan)
     if forbidden is not None:
+        _seal(context)
         return report
 
     for step in the_plan.steps:
+        stop = _stop_requested(context)
+        if stop is not None:
+            by, reason = stop
+            _halt(context, the_plan, step, by=by, reason=reason)
+            _seal(context)
+            return report
+
         if step.consequential and not context.gate_opened:
             gate = _consult_gate(context)
             if not gate.allows_write:
@@ -172,22 +193,63 @@ def execute(graph: WorkGraph, options: RunOptions | None = None) -> RunReport:
                     by="gate",
                     reason=gate.reason or f"verification returned {gate.verdict.value}",
                 )
+                _seal(context)
                 return report
 
         if step.consequential:
             refusal = _approval_refusal(context, step)
             if refusal is not None:
                 _halt(context, the_plan, step, by="approval", reason=refusal)
+                _seal(context)
                 return report
 
-        report.steps.append(_run_step(context, step))
+        result = _run_step(context, step)
+        report.steps.append(result)
+        context.audit.record(
+            "step", node_id=step.id, at=options.wall_clock(), action=result.action,
+            status=result.status, wrote=result.performed_write,
+            digest=result.write_digest, error=result.error,
+        )
 
     report.outcome = (
         RunOutcome.FAILED
         if any(s.status == "error" for s in report.steps)
         else RunOutcome.COMPLETED
     )
+    _seal(context)
     return report
+
+
+def _stop_requested(context: _Context) -> tuple[str, str] | None:
+    """Whether something is asking this run to stop before the next step."""
+    pulled, reason = context.options.kill_switch.pulled()
+    if pulled:
+        return "kill switch", reason or "the kill switch was pulled"
+
+    over_time = context.options.budget.exceeded_by_time(context.watch.elapsed)
+    if over_time:
+        return "budget", over_time
+
+    over_writes = context.options.budget.exceeded_by_writes(len(context.report.writes_performed))
+    if over_writes:
+        return "budget", over_writes
+    return None
+
+
+def _seal(context: _Context) -> None:
+    """Close the audit chain and hand its head to the report.
+
+    The head is the single value an external anchor would need to record. It
+    is published even though Verity has nowhere to anchor it yet, so that when
+    somewhere exists, the runs made before it are not a separate problem.
+    """
+    report = context.report
+    context.audit.record(
+        "run_finished", at=context.options.wall_clock(), outcome=report.outcome.value,
+        halted_by=report.halted_by, halt_reason=report.halt_reason,
+        writes=len(report.writes_performed),
+    )
+    report.audit = context.audit
 
 
 @dataclass
@@ -195,8 +257,10 @@ class _Context:
     options: RunOptions
     guard: WriteGuard
     report: RunReport
+    watch: Stopwatch = field(default_factory=Stopwatch)
     gate_opened: bool = False
     decisions: dict[str, Decision] = field(default_factory=dict)
+    audit: AuditLog = field(default_factory=AuditLog)
 
 
 def _preflight(context: _Context, the_plan: Plan) -> Decision | None:
@@ -210,6 +274,14 @@ def _preflight(context: _Context, the_plan: Plan) -> Decision | None:
     for step in the_plan.consequential_steps:
         decision = context.options.policy.decide(step.node)
         context.decisions[step.id] = decision
+        context.audit.record(
+            "classified", node_id=step.id, at=context.options.wall_clock(),
+            declared=decision.assessment.declared.value,
+            assessed=decision.assessment.assessed.value,
+            effective=decision.level.value,
+            requirement=decision.requirement.value,
+            why=decision.assessment.explain(),
+        )
         if decision.blocks:
             _halt(
                 context, the_plan, step,
@@ -252,6 +324,11 @@ def _approval_refusal(context: _Context, step: Step) -> str | None:
         digest=intent.digest,
         now=context.options.wall_clock(),
     )
+    context.audit.record(
+        "approval_checked", node_id=step.id, at=context.options.wall_clock(),
+        digest=intent.digest, granted=check.granted, reason=check.reason,
+        approver="" if check.approval is None else check.approval.approver,
+    )
     if check.granted:
         return None
     return f"{intent.describe()} requires approval: {check.reason}"
@@ -267,6 +344,11 @@ def _consult_gate(context: _Context) -> GateResult:
     result = context.options.gate.check(dict(context.options.inputs))
     context.report.gate = result
     context.gate_opened = result.allows_write
+    context.audit.record(
+        "verified", at=context.options.wall_clock(), verdict=result.verdict.value,
+        reason=result.reason, failed=list(result.failed_assertions),
+        first_divergence=result.first_divergence,
+    )
     return result
 
 
@@ -287,6 +369,10 @@ def _halt(context: _Context, the_plan: Plan, step: Step, *, by: str, reason: str
     report.not_performed = [
         _describe(s.node) for s in the_plan.steps[step.index:] if s.consequential
     ]
+    context.audit.record(
+        "halted", node_id=step.id, at=context.options.wall_clock(),
+        by=by, reason=reason, not_performed=list(report.not_performed),
+    )
     gate = report.gate
     if gate is not None and gate.verdict is GateVerdict.INCONCLUSIVE and not gate.reason:
         report.gate = GateResult(
