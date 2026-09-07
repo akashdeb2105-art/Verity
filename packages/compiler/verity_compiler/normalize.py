@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import urlparse
 
 from verity_capture import CaptureSession, RawEvent, RawEventKind
 from verity_schema import RiskLevel
+
+from .documents import DOCUMENT_SYSTEM, DocumentRead, read_documents
 
 #: Button or link text that means "this writes something".
 CREATE_WORDS = re.compile(r"\b(create|add|new|save|submit|post|generate)\b", re.I)
@@ -39,6 +42,12 @@ class Step:
     """Which application this happened in, derived from the URL."""
 
     element_hint: str | None = None
+    document_url: str = ""
+    """Where the document itself came from -- not the page that linked to it."""
+    document_sha256: str = ""
+    """Set when this step read a document, so a draft can cite the exact bytes."""
+    document_error: str = ""
+    """Set when a document was carried but could not be read."""
     value: str | None = None
     observed: dict[str, str] = field(default_factory=dict)
     """What the screen showed at this moment."""
@@ -68,8 +77,16 @@ def system_of(url: str | None) -> str | None:
     return re.sub(r"[^a-z0-9]+", "_", host.lower()).strip("_") or None
 
 
-def normalize(session: CaptureSession) -> list[Step]:
-    """Turn a recording into an ordered list of semantic steps."""
+def normalize(
+    session: CaptureSession, session_path: str | Path | None = None
+) -> list[Step]:
+    """Turn a recording into an ordered list of semantic steps.
+
+    ``session_path`` is where the recording was read from. Documents live in a
+    folder beside it, so without the path they cannot be read and every
+    document step stays unread -- which the draft then says out loud.
+    """
+    documents = read_documents(session, session_path)
     steps: list[Step] = []
     for event in session.events:
         if event.kind in (RawEventKind.SESSION_START, RawEventKind.SESSION_END):
@@ -80,6 +97,9 @@ def normalize(session: CaptureSession) -> list[Step]:
         step = _classify(event)
         if step is None:
             continue
+
+        if step.system == DOCUMENT_SYSTEM:
+            _apply_document(step, documents.get(event.seq))
 
         if steps and _is_duplicate_navigation(steps[-1], step):
             steps[-1].source_events.append(event.seq)
@@ -109,7 +129,7 @@ def _classify(event: RawEvent) -> Step | None:
     if event.kind is RawEventKind.OPEN_DOCUMENT:
         return Step(
             index=-1, verb="EXTRACT", label=f"Read document {event.document_ref or ''}".strip(),
-            url=event.url, system="document", element_hint=hint, observed=observed,
+            url=event.url, system=DOCUMENT_SYSTEM, element_hint=hint, observed=observed,
             source_events=[event.seq], note="document",
         )
 
@@ -181,7 +201,7 @@ def _classify_click(
             # invents comparisons that were never made.
             return Step(
                 index=-1, verb="EXTRACT", label=f"Open document {target}".strip(),
-                url=event.url, system="document", element_hint=hint,
+                url=event.url, system=DOCUMENT_SYSTEM, element_hint=hint,
                 observed={}, source_events=[event.seq], confidence=0.5,
                 note="document-not-read",
             )
@@ -251,3 +271,31 @@ def _page_label(url: str | None) -> str:
 
 def _humanise(token: str) -> str:
     return re.sub(r"[-_]+", " ", token).strip()
+
+
+def _apply_document(step: Step, read: DocumentRead | None) -> None:
+    """Fill in what the document actually said, or record why nothing did.
+
+    The label changes with the outcome, because the step list is the first
+    thing a person reads and it has to be true at a glance: "Read invoice"
+    when the document was read, "Open document (not read)" when it was not.
+    """
+    if read is None or not read.ok:
+        # One note for every way a document can fail to produce facts, with
+        # the reason attached. What matters to a reader is the same in all of
+        # them: no fact came out of this, so nothing here is being checked.
+        step.note = "document-not-read"
+        step.label += "  (not read)"
+        step.confidence = 0.5
+        step.document_error = (
+            "it was never fetched" if read is None
+            else (read.error or "the document yielded no fields")
+        )
+        return
+
+    step.observed = dict(read.values)
+    step.document_url = read.attachment.url
+    step.note = "document"
+    step.confidence = 1.0
+    step.document_sha256 = read.sha256
+    step.label = f"Read {Path(read.attachment.filename).stem or 'document'}"

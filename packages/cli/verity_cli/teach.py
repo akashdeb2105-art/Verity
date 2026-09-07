@@ -94,7 +94,7 @@ def cmd_teach(args: argparse.Namespace) -> int:
         printer.line()
 
     session = recorder.stop()
-    write_session(session, args.out)
+    write_session(session, args.out, recorder.attachment_blobs)
 
     redaction = recorder.redaction_summary
     printer.line()
@@ -111,7 +111,7 @@ def cmd_teach(args: argparse.Namespace) -> int:
     else:
         printer.line(printer.style("  nothing needed redacting", "dim"))
 
-    return _compile_and_report(session, args, printer)
+    return _compile_and_report(session, args, printer, Path(args.out))
 
 
 def cmd_inspect(args: argparse.Namespace) -> int:
@@ -128,11 +128,16 @@ def cmd_inspect(args: argparse.Namespace) -> int:
         printer.style(f"  {path.name}", "bold")
         + printer.style(f"  ({len(session.interactions)} interactions)", "dim")
     )
-    return _compile_and_report(session, args, printer)
+    return _compile_and_report(session, args, printer, path)
 
 
-def _compile_and_report(session: object, args: argparse.Namespace, printer: Printer) -> int:
-    steps = normalize(session)  # type: ignore[arg-type]
+def _compile_and_report(
+    session: object,
+    args: argparse.Namespace,
+    printer: Printer,
+    session_path: Path | None = None,
+) -> int:
+    steps = normalize(session, session_path)  # type: ignore[arg-type]
     inputs, comparisons, constants = analyse(steps)
     draft = propose(steps, name=args.name)
     graph = build(steps, inputs, name=args.name)

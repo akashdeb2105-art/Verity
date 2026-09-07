@@ -12,6 +12,7 @@ without a browser.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -57,6 +58,10 @@ class ElementRef(BaseModel):
     css: list[str] = Field(default_factory=list)
     xpath: str | None = None
     text: str | None = None
+    href: str | None = None
+    """Where a link pointed, resolved absolute. Kept so that a document the
+    person opened can be fetched and stored with the recording rather than
+    left as a filename nobody can read."""
 
     @property
     def best_hint(self) -> str:
@@ -117,6 +122,40 @@ class SessionMetadata(BaseModel):
     """Always true. Redaction is not optional and cannot be switched off."""
 
 
+#: What a link has to look like for the recorder to treat it as a document
+#: worth keeping. Shared with the compiler, which must agree about what
+#: counts as opening a document.
+DOCUMENT_URL = re.compile(r"\.(pdf|docx?|xlsx?|csv|png|jpe?g|tiff?)(\?|$)", re.I)
+
+
+class Attachment(BaseModel):
+    """A document the person opened, stored with the recording.
+
+    Content-addressed. A recording either carries the bytes that were read or
+    it does not, and the compiler can tell which -- so a contract never claims
+    to have checked a document that was never fetched.
+
+    This is the independent channel that makes the whole product work: the
+    invoice is not the ERP screen, so comparing them is real evidence rather
+    than a system agreeing with itself.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    sha256: str
+    url: str
+    media_type: str = ""
+    byte_count: int = 0
+    filename: str = ""
+    source_event: int | None = None
+    #: Set when the fetch failed. The recording says so instead of pretending.
+    error: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.error and self.byte_count > 0
+
+
 class CaptureSession(BaseModel):
     """A complete recording. This is what `verity teach` writes to disk."""
 
@@ -126,6 +165,7 @@ class CaptureSession(BaseModel):
     kind: str = "CaptureSession"
     metadata: SessionMetadata
     events: list[RawEvent] = Field(default_factory=list)
+    attachments: list[Attachment] = Field(default_factory=list)
 
     @property
     def interactions(self) -> list[RawEvent]:

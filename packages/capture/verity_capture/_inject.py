@@ -78,6 +78,11 @@ INIT_SCRIPT = r"""
       testid: el.getAttribute("data-testid"),
       label: accessibleName(el),
       tag: el.tagName.toLowerCase(),
+      // The raw attribute, exactly as the page wrote it. Deliberately not
+      // el.href: reading the resolved property stalls the recorder, and the
+      // literal string is the better record anyway -- it is resolved against
+      // the page address in Python, where the rule is visible and testable.
+      href: el.getAttribute ? el.getAttribute("href") : null,
       input_type: (el.type || "").toLowerCase() || null,
       element_id: el.id || null,
       element_name: el.getAttribute("name") || null,
@@ -163,7 +168,23 @@ INIT_SCRIPT = r"""
     } catch (err) { /* never let recording break the page */ }
   };
 
+  // Links Verity opens through its own document channel rather than letting
+  // the browser follow them.
+  const DOCUMENT_HREF = /\.(pdf|docx?|xlsx?|csv|png|jpe?g|tiff?)(\?|$)/i;
+
   document.addEventListener("click", (e) => {
+    // Cancel first, record second. A document link is handled by Verity, not
+    // by the browser: the demonstration should not be derailed into a PDF
+    // viewer the person then has to click Back out of, and a browser that
+    // leaves the page to render or download a file takes the recorder with
+    // it. The click itself is still recorded below, href and all, and the
+    // file is fetched when the session ends -- so nothing is lost.
+    const link = e.target.closest("a[href]");
+    if (link && DOCUMENT_HREF.test(link.getAttribute("href") || "")) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
     const el = e.target.closest("a,button,input,select,textarea,[role],[data-testid]") || e.target;
     send("click", el, null);
   }, true);

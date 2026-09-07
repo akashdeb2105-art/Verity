@@ -15,6 +15,7 @@ from typing import Any
 
 from verity_schema import RiskLevel
 
+from .documents import DOCUMENT_SYSTEM
 from .normalize import Step
 from .values import ProposedComparison, ProposedConstant, ProposedInput, analyse
 
@@ -32,6 +33,21 @@ UNOBSERVABLE = (
 
 
 @dataclass
+class DocumentSource:
+    """A document the recording actually read, and what came out of it.
+
+    Held separately from the connector systems because it is not one: a PDF is
+    read from bytes, not queried through an API, and the contract has to say so
+    for the fact to be reproducible.
+    """
+
+    url: str
+    filename: str
+    fields: list[str] = field(default_factory=list)
+    sha256: str = ""
+
+
+@dataclass
 class ContractDraft:
     name: str
     risk: RiskLevel
@@ -42,6 +58,7 @@ class ContractDraft:
     fields_by_system: dict[str, list[str]] = field(default_factory=dict)
     keys_by_system: dict[str, str] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    document: DocumentSource | None = None
 
     @property
     def assertion_count(self) -> int:
@@ -62,6 +79,8 @@ def propose(steps: list[Step], *, name: str = "recorded_workflow") -> ContractDr
 
     keys_by_system = _keys_by_system(inputs, systems)
 
+    document = _document_source(steps, fields_by_system)
+
     risk = max((s.risk for s in steps), key=_risk_order, default=RiskLevel.LOW)
 
     notes: list[str] = []
@@ -70,11 +89,15 @@ def propose(steps: list[Step], *, name: str = "recorded_workflow") -> ContractDr
             "no value appeared in two systems, so no cross-system check could be "
             "proposed; the assertions below may not prove much"
         )
-    documents = [s.label.removeprefix("Open document ").strip()
-                 for s in steps if s.note == "document-not-read"]
-    if documents:
+    unread = [s for s in steps if s.note == "document-not-read"]
+    if unread:
+        detail = "; ".join(
+            f"{s.label.removeprefix('Open document ').removesuffix('  (not read)').strip()}"
+            + (f" -- {s.document_error}" if s.document_error else "")
+            for s in unread
+        )
         notes.append(
-            "a document was opened during the recording (" + ", ".join(documents)
+            "a document was opened during the recording (" + detail
             + ") but its contents were not read, so nothing in it produced a fact. "
             "If the check depends on what the document says, add a document source "
             "and the fields you need."
@@ -90,7 +113,7 @@ def propose(steps: list[Step], *, name: str = "recorded_workflow") -> ContractDr
     return ContractDraft(
         name=name, risk=risk, inputs=inputs, comparisons=comparisons,
         constants=constants, systems=systems, fields_by_system=fields_by_system,
-        keys_by_system=keys_by_system, notes=notes,
+        keys_by_system=keys_by_system, notes=notes, document=document,
     )
 
 
@@ -152,7 +175,13 @@ def to_yaml(draft: ContractDraft, enrichment: Any = None) -> str:
     add("# address -- rename it to whatever your connector actually provides.")
     add("sources:")
     for system in draft.systems:
-        add(f"  {system}: {{ kind: connector, capability: {system} }}")
+        if draft.document is not None and system == DOCUMENT_SYSTEM:
+            # Not a connector. This is the independent channel: the invoice was
+            # not written by the system it is being checked against, which is
+            # the only reason comparing them proves anything.
+            add(f"  {system}: {{ kind: document, format: pdf }}")
+        else:
+            add(f"  {system}: {{ kind: connector, capability: {system} }}")
 
     add("")
     add("facts:")
@@ -161,6 +190,9 @@ def to_yaml(draft: ContractDraft, enrichment: Any = None) -> str:
         key = draft.keys_by_system.get(system)
         add(f"  - id: {system}")
         add(f"    source: {system}")
+        if draft.document is not None and system == DOCUMENT_SYSTEM:
+            _add_document_fact(add, draft.document, fields)
+            continue
         if key:
             add(f"    read: {{ resource: {_singular(system)}, "
                 f"key: '{{{{ inputs.{key} }}}}' }}")
@@ -184,7 +216,9 @@ def to_yaml(draft: ContractDraft, enrichment: Any = None) -> str:
             "      "
             + (explanations.get(_comparison_id(comparison)) or _comparison_reason(comparison))
         )
-        if not comparison.both_explicit:
+        if not comparison.both_explicit and DOCUMENT_SYSTEM not in (
+            comparison.left_system, comparison.right_system
+        ):
             add("    # Lower confidence: this value was on screen, but the person did")
             add("    # not click it. Confirm they meant to compare it.")
         add("")
@@ -335,9 +369,18 @@ def _field_name(system: str, key: str) -> str:
 
 
 def _comparison_id(comparison: ProposedComparison) -> str:
+    """A name that says which two things are being compared.
+
+    Two systems can hold the same field name -- an amount is an amount
+    everywhere -- so the id carries the systems, not just the fields. Ids that
+    collide would silently overwrite each other in any tool that keys on them,
+    and a contract whose checks cannot be told apart cannot be reviewed.
+    """
     left = _field_name(comparison.left_system, comparison.left_key)
     right = _field_name(comparison.right_system, comparison.right_key)
-    return f"{left}_matches_{right}" if left != right else f"{left}_matches"
+    if left == right:
+        return f"{comparison.left_system}_{left}_matches_{comparison.right_system}"
+    return f"{comparison.left_system}_{left}_matches_{comparison.right_system}_{right}"
 
 
 def _comparison_expression(comparison: ProposedComparison) -> str:
@@ -351,6 +394,14 @@ def _comparison_expression(comparison: ProposedComparison) -> str:
 
 
 def _comparison_reason(comparison: ProposedComparison) -> str:
+    if DOCUMENT_SYSTEM in (comparison.left_system, comparison.right_system):
+        other = (comparison.right_system if comparison.left_system == DOCUMENT_SYSTEM
+                 else comparison.left_system)
+        return (
+            f"the document says '{comparison.example}' and so does {other}. "
+            "The document was not written by that system, so this comparison is "
+            "evidence rather than a system agreeing with itself."
+        )
     seen = "and both were clicked on" if comparison.both_explicit else "and both were on screen"
     return (
         f"'{comparison.example}' appeared in both {comparison.left_system} and "
@@ -374,3 +425,77 @@ def _wrap(text: str, width: int) -> list[str]:
 
 def _risk_order(risk: RiskLevel) -> int:
     return [RiskLevel.LOW, RiskLevel.MEDIUM, RiskLevel.HIGH, RiskLevel.CRITICAL].index(risk)
+
+
+def _document_path(url: str) -> str:
+    """The address of a document, without the host it happened to be on.
+
+    A contract that hardcodes 'http://10.0.3.4:8080' is a contract that only
+    runs on the machine the recording was made against. The host belongs to
+    the source binding supplied at verification time -- which is the same
+    reason facts name a source role and not a connector instance.
+    """
+    from urllib.parse import urlparse
+
+    parts = urlparse(url)
+    if not parts.scheme:
+        return url
+    return parts.path + (f"?{parts.query}" if parts.query else "")
+
+
+def _document_source(
+    steps: list[Step], fields_by_system: dict[str, list[str]]
+) -> DocumentSource | None:
+    """The document this recording read, if it read one.
+
+    Only the first is taken. A recording that opens several documents needs a
+    fact per document with its own key, and proposing that from one run would
+    be guesswork -- the notes say so instead.
+    """
+    read = [s for s in steps if s.system == DOCUMENT_SYSTEM and s.observed]
+    if not read:
+        return None
+
+    step = read[0]
+    return DocumentSource(
+        url=_document_path(step.document_url or step.url or ""),
+        filename=step.label.removeprefix("Read ").strip(),
+        fields=list(fields_by_system.get(DOCUMENT_SYSTEM) or sorted(step.observed)),
+        sha256=step.document_sha256,
+    )
+
+
+def _add_document_fact(
+    add: Any, document: DocumentSource, fields: list[str]
+) -> None:
+    """Write the document fact: where the file is, and what to pull out of it.
+
+    The extraction is named field by field rather than left open, because a
+    contract has to be reproducible: 'read the total' is a rule, 'read what
+    seems important' is not.
+    """
+    add(f"    document: '{document.url}'")
+    add("    # TODO: this is the exact file from the recording. Parameterise it")
+    add("    #       with an input so the contract runs on tomorrow's invoice too.")
+    if document.sha256:
+        add(f"    # The recorded copy hashed to sha256:{document.sha256[:16]}...")
+    add("    extract:")
+    for name in fields or document.fields:
+        hint = _EXTRACT_HINTS.get(name, name.replace("_", " "))
+        add(f"      {name}: {{ type: {_EXTRACT_TYPES.get(name, 'string')}, "
+            f"hint: '{hint}' }}")
+    add("    expect_cardinality: 1")
+    add("")
+
+
+#: What to tell the extractor to look for. These are the labels a business
+#: document actually uses, not the field names Verity uses internally.
+_EXTRACT_HINTS = {
+    "total": "amount due / grand total",
+    "number": "invoice number",
+    "vendor": "supplier name",
+    "po_ref": "purchase order reference",
+    "date": "invoice date",
+}
+
+_EXTRACT_TYPES = {"total": "decimal", "date": "date"}

@@ -9,6 +9,8 @@ session reader all work on a machine with no browser installed.
 """
 
 from .events import (
+    DOCUMENT_URL,
+    Attachment,
     CaptureSession,
     ElementRef,
     RawEvent,
@@ -19,6 +21,8 @@ from .recorder import (
     BrowserRecorder,
     CaptureError,
     RecorderOptions,
+    attachments_dir,
+    read_attachment,
     read_session,
     write_session,
 )
@@ -31,8 +35,9 @@ from .redaction import (
 )
 
 __all__ = [
-    "BrowserRecorder", "CaptureError", "CaptureSession", "ElementRef", "RawEvent",
-    "RawEventKind", "RecorderOptions", "RedactionReason", "RedactionResult",
-    "SessionMetadata", "classify_field", "read_session", "redact_value",
-    "redact_visible_text", "write_session",
+    "DOCUMENT_URL", "Attachment", "BrowserRecorder", "CaptureError", "CaptureSession",
+    "ElementRef", "RawEvent", "RawEventKind", "RecorderOptions", "RedactionReason",
+    "RedactionResult", "SessionMetadata", "attachments_dir", "classify_field",
+    "read_attachment", "read_session", "redact_value", "redact_visible_text",
+    "write_session",
 ]
