@@ -20,7 +20,18 @@ from typing import Any
 
 import yaml
 from verity_connectors import ConnectorRegistry, WritableConnector, WriteMode
-from verity_runtime import GateResult, GateVerdict, RunOptions, RunOutcome, execute
+from verity_runtime import (
+    Approval,
+    GateResult,
+    GateVerdict,
+    InMemoryApprovalStore,
+    Policy,
+    PolicyError,
+    RunOptions,
+    RunOutcome,
+    execute,
+    pending_writes,
+)
 from verity_schema.workgraph import WorkGraph
 
 from .output import Printer
@@ -69,7 +80,53 @@ class ContractGate:
         )
 
 
+def load_approvals(path: Path) -> InMemoryApprovalStore:
+    """Read approvals from a file, refusing anything malformed.
+
+    An approvals file that half-parsed would be the worst of both worlds: some
+    controls enforced, some silently dropped. Every record must be complete.
+    """
+    raw = json.loads(path.read_text("utf-8")) if path.suffix == ".json" \
+        else yaml.safe_load(path.read_text("utf-8"))
+    records = raw.get("approvals", raw) if isinstance(raw, dict) else raw
+    if not isinstance(records, list):
+        raise ValueError(f"{path}: expected a list of approvals")
+
+    store = InMemoryApprovalStore()
+    for index, record in enumerate(records):
+        missing = [k for k in ("run_id", "node_id", "digest", "approver")
+                   if not str(record.get(k, "")).strip()]
+        if missing:
+            raise ValueError(f"{path}: approval {index} is missing {', '.join(missing)}")
+        store.grant(Approval(
+            run_id=str(record["run_id"]), node_id=str(record["node_id"]),
+            digest=str(record["digest"]), approver=str(record["approver"]),
+            granted_at=float(record.get("granted_at") or 0.0),
+            expires_at=float(record.get("expires_at") or 0.0),
+            revoked=bool(record.get("revoked", False)),
+            note=str(record.get("note") or ""),
+        ))
+    return store
+
+
+def load_policy(path: Path) -> Policy:
+    raw = json.loads(path.read_text("utf-8")) if path.suffix == ".json" \
+        else yaml.safe_load(path.read_text("utf-8"))
+    if not isinstance(raw, dict):
+        raise PolicyError(f"{path}: a policy must be a mapping")
+    return Policy.from_mapping(raw)
+
+
 def add_run_commands(sub: Any) -> None:
+    pending = sub.add_parser(
+        "pending", help="show what a run would write, and what it needs to proceed")
+    pending.add_argument("graph", help="path to a WorkGraph (YAML or JSON)")
+    pending.add_argument("--input", action="append", default=[], metavar="k=v")
+    pending.add_argument("--run-id", default="", help="the run these approvals will apply to")
+    pending.add_argument("--policy", default="", help="path to a policy file")
+    pending.add_argument("--json", action="store_true")
+    pending.set_defaults(handler=cmd_pending)
+
     for name, help_text, live in (
         ("dry-run", "execute a workflow without writing anything", False),
         ("run", "execute a workflow, writing only if verification passes", True),
@@ -82,8 +139,76 @@ def add_run_commands(sub: Any) -> None:
                             help="an input value; repeatable")
         parser.add_argument("--sandbox", default="", help="sandbox base URL")
         parser.add_argument("--evidence-dir", default=".verity/evidence")
+        parser.add_argument("--approvals", default="",
+                            help="path to a file of approvals, each bound to a payload digest")
+        parser.add_argument("--policy", default="",
+                            help="path to a policy file; the built-in default is used otherwise")
+        parser.add_argument("--run-id", default="",
+                            help="fix the run id, so approvals can be prepared in advance")
         parser.add_argument("--json", action="store_true", help="machine-readable output")
         parser.set_defaults(handler=cmd_run, live=live)
+
+
+def cmd_pending(args: argparse.Namespace) -> int:
+    """List the consequential writes a run would make. Contacts nothing."""
+    printer = Printer()
+    graph_path = Path(args.graph)
+    if not graph_path.is_file():
+        print(f"verity: no such workgraph: {graph_path}", file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        inputs = _parse_inputs(args.input)
+        policy = load_policy(Path(args.policy)) if args.policy else Policy()
+    except (ValueError, PolicyError) as exc:
+        print(f"verity: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    run_id = args.run_id or "RUN_ID"
+    writes = pending_writes(
+        _load_graph(graph_path), RunOptions(inputs=inputs, policy=policy, run_id=run_id))
+
+    if args.json:
+        print(json.dumps([{
+            "run_id": run_id, "node_id": w.node_id, "digest": w.digest,
+            "risk": w.decision.level.value, "requirement": w.decision.requirement.value,
+            "declared": w.decision.assessment.declared.value,
+            "understated": w.decision.assessment.understated,
+            "write": w.intent.describe(), "why": w.decision.assessment.explain(),
+        } for w in writes], indent=2, sort_keys=True))
+        return 0
+
+    printer.line()
+    if not writes:
+        printer.line("  Nothing in this graph changes the world.")
+        printer.line()
+        return 0
+
+    for write in writes:
+        style = "fail" if write.decision.blocks else "dim"
+        printer.line(printer.style(f"  {write.node_id}", "bold")
+                     + printer.style(f"  {write.decision.level.value}", style)
+                     + printer.style(f"  {write.decision.requirement.value}", "dim"))
+        printer.line(f"    {write.intent.describe()}")
+        printer.line(printer.style(f"    {write.decision.assessment.explain()}", "dim"))
+        if write.decision.assessment.understated:
+            printer.line(printer.style(
+                "    the graph declared "
+                f"{write.decision.assessment.declared.value}; assessed higher", "fail"))
+        printer.line(printer.style(f"    {write.digest}", "dim"))
+        printer.line()
+
+    needing = [w for w in writes if w.needs_approval]
+    if needing:
+        template = json.dumps([{
+            "run_id": run_id, "node_id": w.node_id, "digest": w.digest,
+            "approver": "you@example.com",
+        } for w in needing], indent=2)
+        printer.line(printer.style(
+            "  To approve, record each digest against this run id:", "dim"))
+        for line in template.splitlines():
+            printer.line(printer.style(f"    {line}", "dim"))
+        printer.line()
+    return 0
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -101,6 +226,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"verity: {exc}", file=sys.stderr)
         return EXIT_USAGE
 
+    try:
+        approvals = load_approvals(Path(args.approvals)) if args.approvals \
+            else InMemoryApprovalStore()
+        policy = load_policy(Path(args.policy)) if args.policy else Policy()
+    except (OSError, ValueError, PolicyError) as exc:
+        print(f"verity: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
     graph = _load_graph(graph_path)
     base_url = args.sandbox or DEFAULT_SANDBOX_URL
     registry = build_sandbox_registry(base_url)
@@ -113,6 +246,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         gate=gate,
         registry=registry,
         writers=writers,
+        policy=policy,
+        approvals=approvals,
+        run_id=args.run_id,
     ))
 
     if args.json:
@@ -160,6 +296,8 @@ def _print_report(printer: Printer, report: Any, *, live: bool) -> None:
     if report.outcome is RunOutcome.HALTED:
         printer.line()
         printer.line(printer.style(f"  Halted before {report.halted_at}.", "fail"))
+        if report.halt_reason:
+            printer.line(printer.style(f"    {report.halted_by}: {report.halt_reason}", "dim"))
         for description in report.not_performed:
             printer.line(printer.style(f"    did not: {description}", "dim"))
     elif live and report.writes_performed:

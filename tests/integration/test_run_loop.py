@@ -14,7 +14,14 @@ from typing import Any
 import pytest
 import yaml
 from verity_connectors import HttpWriteConnector, WriteMode
-from verity_runtime import RunOptions, RunOutcome, execute
+from verity_runtime import (
+    Approval,
+    InMemoryApprovalStore,
+    RunOptions,
+    RunOutcome,
+    execute,
+    pending_writes,
+)
 from verity_schema.workgraph import WorkGraph
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -50,10 +57,27 @@ def gate(registry: Any, tmp_path: Path) -> Any:
 
 
 def _run(graph: WorkGraph, gate: Any, writers: dict[str, Any],
-         mode: WriteMode = WriteMode.LIVE) -> Any:
-    return execute(graph, RunOptions(
+         mode: WriteMode = WriteMode.LIVE, *, approve: bool = True) -> Any:
+    """A run with the bill approved, so that verification is what is on trial.
+
+    The approval is granted against the digest of the write this run would
+    actually make -- the same path an approval UI would take. A test that
+    disabled the approval control instead would be testing a product nobody
+    ships.
+    """
+    options = RunOptions(
         inputs=dict(DEMO_INPUTS), mode=mode, gate=gate, writers=writers,
-    ))
+        run_id="run_integration",
+    )
+    if approve:
+        store = InMemoryApprovalStore()
+        for pending in pending_writes(graph, options):
+            store.grant(Approval(
+                run_id=options.run_id, node_id=pending.node_id,
+                digest=pending.digest, approver="controller@example.com",
+            ))
+        options.approvals = store
+    return execute(graph, options)
 
 
 def _bills(client: Any) -> int:
@@ -151,3 +175,40 @@ def test_every_fault_stops_at_the_same_place(
     assert report.halted_at == "create_bill"
     assert report.verifier_says != "PASS"
     assert _state_hash(sandbox_client) == before
+
+
+def test_a_verified_run_still_will_not_write_without_an_approval(
+    graph: WorkGraph, gate: Any, writers: Any, sandbox_client: Any
+) -> None:
+    """Verification passing is not the same as being allowed.
+
+    Everything about this run is correct: the invoice matches the purchase
+    order, the verifier returns PASS, no perturbation is applied. It still
+    writes nothing, because nobody approved it. The two controls are separate
+    on purpose -- "the outcome is right" and "you may do it" are different
+    questions, and a system that answers only the first will eventually do
+    something correct that nobody wanted.
+    """
+    before_hash, before_count = _state_hash(sandbox_client), _bills(sandbox_client)
+
+    report = _run(graph, gate, writers, approve=False)
+
+    assert report.verifier_says == "PASS"
+    assert report.outcome is RunOutcome.HALTED
+    assert report.halted_by == "approval"
+    assert "no approval on file" in report.halt_reason
+    assert _bills(sandbox_client) == before_count
+    assert _state_hash(sandbox_client) == before_hash
+
+
+def test_the_approval_names_the_amount_it_authorises(
+    graph: WorkGraph, sandbox_client: Any
+) -> None:
+    """What a person would be shown before saying yes."""
+    pending = pending_writes(graph, RunOptions(inputs=dict(DEMO_INPUTS)))
+
+    assert len(pending) == 1
+    assert pending[0].node_id == "create_bill"
+    assert pending[0].needs_approval
+    assert pending[0].digest.startswith("sha256:")
+    assert _bills(sandbox_client) == _bills(sandbox_client)  # nothing was contacted

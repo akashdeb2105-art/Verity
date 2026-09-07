@@ -46,6 +46,12 @@ class StepResult:
     consequential: bool = False
     performed_write: bool = False
     write_digest: str = ""
+    risk: str = ""
+    """Effective risk level, after the policy declined to take the graph's word for it."""
+
+    requirement: str = ""
+    """What the policy required of this step: ALLOW, REQUIRE_APPROVAL or FORBID."""
+
     outputs: dict[str, Any] = field(default_factory=dict)
     error: str = ""
     duration_ms: int = 0
@@ -72,6 +78,19 @@ class RunReport:
     halted_at: str = ""
     """The node the run stopped *before*. Empty when nothing was refused."""
 
+    halted_by: str = ""
+    """Which control stopped it: policy, gate, approval, kill switch or budget.
+
+    A run can be stopped for several different reasons and they are not
+    interchangeable. "Verification failed" and "nobody approved this" call for
+    different actions from whoever reads the report.
+    """
+
+    halt_reason: str = ""
+    """The stop, in a sentence, from whichever control did the stopping."""
+
+    policy_name: str = ""
+
     not_performed: list[str] = field(default_factory=list)
     """Consequential actions that were never carried out, described in words."""
 
@@ -86,8 +105,17 @@ class RunReport:
         Every step it attempted succeeded, so an executor with no verifier
         would say the task is done -- and would be wrong. This field exists to
         be printed next to the next one.
+
+        A run the policy refused before anything was attempted says NOT
+        STARTED rather than DONE. Claiming an agent reported success for work
+        it never began would be the same kind of lie the rest of this file
+        exists to prevent, just told in our favour.
         """
-        return "DONE" if not any(s.status == "error" for s in self.steps) else "ERROR"
+        if any(s.status == "error" for s in self.steps):
+            return "ERROR"
+        if not any(s.status == "ok" for s in self.steps):
+            return "NOT STARTED"
+        return "DONE"
 
     @property
     def verifier_says(self) -> str:
@@ -116,6 +144,9 @@ class RunReport:
             "runtime_said": self.runtime_said,
             "verifier_says": self.verifier_says,
             "halted_at": self.halted_at,
+            "halted_by": self.halted_by,
+            "halt_reason": self.halt_reason,
+            "policy": self.policy_name,
             "not_performed": list(self.not_performed),
             "node_sequence": self.node_sequence,
             "writes_performed": [s.node_id for s in self.writes_performed],
@@ -126,6 +157,7 @@ class RunReport:
                     "status": s.status, "consequential": s.consequential,
                     "performed_write": s.performed_write,
                     "write_digest": s.write_digest, "error": s.error,
+                    "risk": s.risk, "requirement": s.requirement,
                 }
                 for s in self.steps
             ],

@@ -13,13 +13,16 @@ import pytest
 from verity_connectors import WriteMode
 from verity_runtime import (
     AlwaysPassGate,
+    Approval,
     ClosedGate,
     GateResult,
     GateVerdict,
+    InMemoryApprovalStore,
     PlanError,
     RunOptions,
     RunOutcome,
     execute,
+    pending_writes,
     plan,
 )
 from verity_schema import RiskLevel
@@ -75,6 +78,23 @@ def _graph(*, write: bool = True) -> WorkGraph:
 def _options(gate: Any, writer: RecordingWriter, mode: WriteMode = WriteMode.LIVE) -> RunOptions:
     return RunOptions(inputs=dict(DEMO_INPUTS), mode=mode, gate=gate,
                       writers={"ledger": writer}, run_id="run_fixed")
+
+
+def _run(graph: WorkGraph, options: RunOptions) -> Any:
+    """Execute with every pending write already approved.
+
+    Tests about the gate should fail for gate reasons, so approval is granted
+    here rather than left to also be missing. Each control is tested where it
+    is the only thing that could stop the run.
+    """
+    store = InMemoryApprovalStore()
+    for pending in pending_writes(graph, options):
+        store.grant(Approval(
+            run_id=options.run_id, node_id=pending.node_id,
+            digest=pending.digest, approver="ops@example.com",
+        ))
+    options.approvals = store
+    return execute(graph, options)
 
 
 # ------------------------------------------------------------------ planning
@@ -143,7 +163,8 @@ def test_only_a_pass_opens_the_gate(verdict: GateVerdict, writes: bool) -> None:
     that collapse happening by accident later.
     """
     writer = RecordingWriter()
-    report = execute(_graph(), _options(StubGate(verdict), writer))
+    graph = _graph()
+    report = _run(graph, _options(StubGate(verdict), writer))
 
     assert bool(writer.calls) is writes
     assert (report.outcome is RunOutcome.COMPLETED) is writes
@@ -151,7 +172,8 @@ def test_only_a_pass_opens_the_gate(verdict: GateVerdict, writes: bool) -> None:
 
 def test_the_gate_is_consulted_once_not_per_step() -> None:
     gate = StubGate(GateVerdict.PASS)
-    execute(_graph(), _options(gate, RecordingWriter()))
+    graph = _graph()
+    _run(graph, _options(gate, RecordingWriter()))
     assert gate.calls == 1
 
 
@@ -184,7 +206,8 @@ def test_a_halt_says_what_was_not_done() -> None:
 
 def test_a_dry_run_performs_nothing_even_when_verification_passes() -> None:
     writer = RecordingWriter()
-    report = execute(_graph(), _options(AlwaysPassGate(), writer, WriteMode.DRY_RUN))
+    graph = _graph()
+    report = _run(graph, _options(AlwaysPassGate(), writer, WriteMode.DRY_RUN))
 
     assert report.outcome is RunOutcome.COMPLETED
     assert writer.calls == []
@@ -195,7 +218,8 @@ def test_a_dry_run_performs_nothing_even_when_verification_passes() -> None:
 
 def test_a_payload_interpolates_only_declared_inputs() -> None:
     writer = RecordingWriter()
-    execute(_graph(), _options(AlwaysPassGate(), writer))
+    graph = _graph()
+    _run(graph, _options(AlwaysPassGate(), writer))
 
     _, payload = writer.calls[0]
     assert payload["ref"] == "INV-4471"
@@ -215,7 +239,7 @@ def test_an_unknown_placeholder_is_left_alone_rather_than_blanked() -> None:
             payload={"ref": "{{ inputs.not_supplied }}"}))],
     )
     writer = RecordingWriter()
-    execute(graph, _options(AlwaysPassGate(), writer))
+    _run(graph, _options(AlwaysPassGate(), writer))
 
     assert writer.calls[0][1]["ref"] == "{{ inputs.not_supplied }}"
 
@@ -229,6 +253,7 @@ def test_a_consequential_node_with_no_write_spec_is_an_error_not_a_guess() -> No
 
 
 def test_execution_costs_nothing_and_calls_no_model() -> None:
-    report = execute(_graph(), _options(AlwaysPassGate(), RecordingWriter()))
+    graph = _graph()
+    report = _run(graph, _options(AlwaysPassGate(), RecordingWriter()))
     assert report.model_calls == 0
     assert report.cost_usd == 0.0
