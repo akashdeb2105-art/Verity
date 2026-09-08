@@ -173,3 +173,63 @@ def test_malformed_input_is_a_usage_error(tmp_path: Path) -> None:
 
 def test_no_subcommand_prints_help_and_exits_four() -> None:
     assert main([]) == 4
+
+
+# ------------------------------------------------- degrading, not collapsing
+
+_HIDE_RUNTIME = """
+import sys, builtins
+_real = builtins.__import__
+def _blocked(name, *a, **k):
+    if name == "verity_runtime" or name.startswith("verity_runtime."):
+        raise ModuleNotFoundError("No module named 'verity_runtime'", name="verity_runtime")
+    return _real(name, *a, **k)
+builtins.__import__ = _blocked
+for mod in [m for m in sys.modules if m.startswith("verity_runtime")]:
+    del sys.modules[mod]
+from verity_cli.main import main
+sys.exit(main(sys.argv[1:]))
+"""
+
+
+def _without_runtime(*argv: str) -> Any:
+    """Run the CLI in a fresh interpreter where verity_runtime cannot be imported.
+
+    A subprocess rather than monkeypatching, because the failure being
+    reproduced happens at module import time and patching inside an
+    already-imported process would prove the wrong thing.
+    """
+    import subprocess
+    import sys
+
+    return subprocess.run(
+        [sys.executable, "-c", _HIDE_RUNTIME, *argv],
+        capture_output=True, text=True, cwd=REPO_ROOT, check=False,
+    )
+
+
+def test_a_missing_package_does_not_take_down_the_whole_cli() -> None:
+    """A checkout whose editable install predates a package used to be fatal.
+
+    Every command died on an import traceback naming a module the user had
+    never heard of -- including `doctor`, whose entire job is to explain what
+    is wrong. Losing the diagnostic to the fault it diagnoses is the worst
+    possible time to lose it.
+    """
+    result = _without_runtime("doctor")
+    combined = result.stdout + result.stderr
+
+    assert "Traceback" not in combined
+    assert "verity_runtime MISSING" in combined
+    assert 'pip install -e ".[dev,sandbox,extract]"' in combined
+    assert result.returncode == 1
+
+
+def test_commands_that_do_not_need_the_runtime_still_work_without_it() -> None:
+    result = _without_runtime("--help")
+
+    assert result.returncode == 0
+    assert "verify" in result.stdout
+    assert "lint" in result.stdout
+    # ...and the ones that do need it are absent rather than broken.
+    assert "dry-run" not in result.stdout

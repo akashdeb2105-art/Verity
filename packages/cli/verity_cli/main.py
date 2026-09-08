@@ -38,12 +38,34 @@ from verity_verifier import (
 
 from .output import Printer, render_report
 from .reporters import github_annotations, summary_markdown, write_json, write_junit
-from .run import add_run_commands
 from .teach import add_arguments as add_teach_arguments
 from .teach import cmd_inspect, cmd_teach
 
 EXIT_USAGE = 4
 DEFAULT_FAIL_ON = "fail,inconclusive"
+
+#: Set when a sibling package is not importable -- almost always a checkout
+#: whose editable install predates a package being added.
+#:
+#: The CLI degrades instead of dying. A missing package used to take down
+#: every command including ``doctor``, which is the one whose whole job is to
+#: explain what is wrong: the user got an import traceback from a module they
+#: had never heard of, and no route to the one-line fix.
+_MISSING_PACKAGE: ModuleNotFoundError | None = None
+
+try:
+    from .run import add_run_commands
+except ModuleNotFoundError as exc:  # pragma: no cover - exercised by a subprocess test
+    _MISSING_PACKAGE = exc
+    add_run_commands = None  # type: ignore[assignment]
+
+
+def _install_hint(exc: ModuleNotFoundError) -> str:
+    return (
+        f"{exc.name} is not importable. This usually means the editable install "
+        "is older than the package. Fix it with:\n"
+        '    pip install -e ".[dev,sandbox,extract]"'
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -129,10 +151,16 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect_cmd.add_argument("--no-color", action="store_true")
     inspect_cmd.set_defaults(handler=cmd_inspect)
 
-    add_run_commands(sub)
+    if add_run_commands is not None:
+        add_run_commands(sub)
 
     doctor_cmd = sub.add_parser("doctor", help="check the local environment")
     doctor_cmd.add_argument("--sandbox-url", default=_default_sandbox_url())
+    doctor_cmd.add_argument(
+        "--probe-ai", action="store_true",
+        help="make one real model call to check the authoring chain is usable. "
+             "Costs a few tokens. Nothing else in Verity calls a model.",
+    )
     doctor_cmd.set_defaults(handler=cmd_doctor)
 
     return parser
@@ -241,10 +269,101 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         printer.line(printer.style(f"    sandbox          unreachable ({exc})", "fail"))
         printer.line(printer.style("                     start it with: make sandbox", "dim"))
 
-    printer.line(printer.style("    model providers  none configured (verification is "
-                              "deterministic)", "dim"))
+    if _MISSING_PACKAGE is not None:
+        ok = False
+        printer.line(printer.style(
+            f"    packages         {_MISSING_PACKAGE.name} MISSING -- run and dry-run "
+            "are unavailable", "fail"))
+        for line in _install_hint(_MISSING_PACKAGE).splitlines()[1:]:
+            printer.line(printer.style(f"                 {line}", "dim"))
+    else:
+        printer.line(printer.style("    packages         all importable", "dim"))
+
+    ok = _report_providers(printer, probe=args.probe_ai) and ok
     printer.line()
     return 0 if ok else 1
+
+
+def _report_providers(printer: Printer, *, probe: bool) -> bool:
+    """Show the authoring chain, and optionally prove it answers.
+
+    A model is used only by ``teach --ai`` and ``inspect --ai``. Verification
+    calls none, and an import rule stops it from being able to -- so an
+    unconfigured chain is a normal state here, not a fault.
+    """
+    from verity_ai import build_chain
+    from verity_ai.base import NullProvider
+
+    chain = build_chain()
+    if isinstance(chain, NullProvider):
+        printer.line(printer.style(
+            "    model providers  none configured (verification is deterministic)", "dim"))
+        return True
+
+    providers = list(getattr(chain, "providers", [chain]))
+    printer.line(f"    model providers  {chain.name}")
+    for index, provider in enumerate(providers):
+        keyed = "key set" if provider.api_key else printer.style("NO KEY", "fail")
+        price = (
+            "unpriced" if provider.input_price is None
+            else f"${provider.input_price}/${provider.output_price} per 1M"
+        )
+        role = "first" if index == 0 else "fallback"
+        printer.line(printer.style(
+            f"      {role:<9}{provider.name:<12}{provider.model:<40}{keyed}  {price}", "dim"))
+
+    if not probe:
+        printer.line(printer.style(
+            "                     --probe-ai makes one real call to check it answers", "dim"))
+        return True
+
+    return _probe(printer, chain)
+
+
+def _probe(printer: Printer, chain: Any) -> bool:
+    """One minimal call, reported honestly whichever way it goes."""
+    import time
+
+    from verity_ai.base import ProviderError
+
+    started = time.monotonic()
+    try:
+        completion = chain.complete_json(
+            "You return JSON and nothing else.",
+            'Return exactly {"ok": true}.',
+            schema_hint='{"ok": boolean}',
+        )
+    except ProviderError as exc:
+        printer.line(printer.style(f"    probe            failed: {exc}", "fail"))
+        return False
+    except Exception as exc:
+        printer.line(printer.style(
+            f"    probe            failed: {type(exc).__name__}: {exc}", "fail"))
+        return False
+
+    elapsed = int((time.monotonic() - started) * 1000)
+    cost = "unpriced" if completion.usd is None else f"${completion.usd:.6f}"
+
+    # A fallback that answers is still a fallback. Reporting only the provider
+    # that succeeded would let a dead primary sit unnoticed behind a healthy
+    # chain -- which is exactly the failure a chain is supposed to make
+    # survivable, not invisible.
+    failures = list(getattr(chain, "failures", []))
+    for name, error in failures:
+        printer.line(printer.style(f"    probe            {name} FAILED: {error}", "fail"))
+
+    style = "drift" if failures else "pass"
+    word = "fell back" if failures else "answered "
+    printer.line(
+        printer.style(f"    probe            {word} ", style)
+        + printer.style(f"{completion.model}  {elapsed}ms  {cost}", "dim")
+    )
+    printer.line(printer.style(f"                     {completion.data}", "dim"))
+    if failures:
+        printer.line(printer.style(
+            "                     the chain answered, but your first choice did not",
+            "drift"))
+    return not failures
 
 
 # ---------------------------------------------------------------------------

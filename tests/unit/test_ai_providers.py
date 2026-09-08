@@ -412,49 +412,173 @@ def test_a_chosen_model_applies_only_to_the_first_provider(monkeypatch: Any) -> 
     it was supposed to save the run -- and it would look like the fallback
     provider was broken rather than misconfigured.
     """
-    monkeypatch.setenv("CODECRAFT_API_KEY", "cc_test")
     monkeypatch.setenv("FIREWORKS_API_KEY", "f")
     monkeypatch.setenv("GOOGLE_API_KEY", "g")
-    monkeypatch.setenv("VERITY_LLM_MODEL", "gemini-3.7-flash")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "o")
+    monkeypatch.setenv("VERITY_LLM_MODEL", "accounts/fireworks/models/something-custom")
 
-    chain = build_chain("codecraft+fireworks+gemini")
+    chain = build_chain("fireworks+gemini+openrouter")
 
     assert isinstance(chain, FallbackProvider)
     first, *rest = chain.providers
-    assert first.model == "gemini-3.7-flash"
-    assert [p.model for p in rest] == [
-        "accounts/fireworks/models/glm-5p3-flash",
-        "gemini-3.5-flash",
-    ]
+    assert first.model == "accounts/fireworks/models/something-custom"
+    assert [p.model for p in rest] == ["gemini-3.5-flash", "minimax/minimax-m3:free"]
 
 
-def test_an_openai_compatible_aggregator_is_a_provider_of_its_own(
-    monkeypatch: Any,
-) -> None:
-    """Named, rather than reached by overriding another provider's base URL.
-
-    A name is what lets it take a position in a fallback chain and be priced
-    on its own terms.
-    """
-    monkeypatch.setenv("CODECRAFT_API_KEY", "cc_test")
-    monkeypatch.delenv("VERITY_LLM_MODEL", raising=False)
-
-    provider = build_chain("codecraft")
-
-    assert provider.name == "codecraft"
-    assert provider.base_url == "https://codecraftapi.com/v1"
-    assert provider.available()
 
 
 def test_an_unpriced_model_is_reported_as_unpriced_rather_than_guessed(
     monkeypatch: Any,
 ) -> None:
-    """An aggregator resells upstreams whose prices move. A made-up cost is
-    worse than an admitted gap."""
-    monkeypatch.setenv("CODECRAFT_API_KEY", "cc_test")
-    monkeypatch.setenv("VERITY_LLM_MODEL", "some-model-nobody-has-priced")
+    """A printed $0.0000 that is actually a charge is a fabricated number.
 
-    provider = build_chain("codecraft")
+    Prices drift and models are retired, so a model this build cannot price
+    reports as unpriced rather than guessed.
+    """
+    monkeypatch.setenv("OPENROUTER_API_KEY", "o")
+    monkeypatch.setenv("VERITY_LLM_MODEL", "some-vendor/some-model-nobody-has-priced")
+
+    provider = build_chain("openrouter")
 
     assert provider.input_price is None
     assert provider.output_price is None
+
+
+# ------------------------------------------------------- what doctor reports
+
+def test_doctor_reports_the_chain_it_would_actually_use(
+    monkeypatch: Any, capsys: Any
+) -> None:
+    """The line doctor used to print here said "none configured" unconditionally.
+
+    A diagnostic that describes a state the system is not in is worse than one
+    that says nothing, because it is read as evidence.
+    """
+    import argparse
+
+    from verity_cli.main import cmd_doctor
+
+    monkeypatch.setenv("VERITY_LLM_PROVIDER", "gemini+fireworks")
+    monkeypatch.setenv("VERITY_LLM_MODEL", "gemini-3.5-pro")
+    monkeypatch.setenv("GOOGLE_API_KEY", "g")
+    monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
+
+    cmd_doctor(argparse.Namespace(
+        sandbox_url="http://127.0.0.1:1", probe_ai=False, no_color=True))
+    out = capsys.readouterr().out
+
+    assert "gemini+fireworks" in out
+    assert "gemini-3.5-pro" in out
+    # The fallback keeps its own model, and its missing key is called out.
+    assert "accounts/fireworks/models/glm-5p3-flash" in out
+    assert "NO KEY" in out
+
+
+def test_doctor_says_nothing_is_configured_when_nothing_is(
+    monkeypatch: Any, capsys: Any
+) -> None:
+    """An unconfigured chain is a normal state: the verifier never calls a model."""
+    import argparse
+
+    from verity_cli.main import cmd_doctor
+
+    monkeypatch.setenv("VERITY_LLM_PROVIDER", "")
+    cmd_doctor(argparse.Namespace(
+        sandbox_url="http://127.0.0.1:1", probe_ai=False, no_color=True))
+
+    assert "none configured" in capsys.readouterr().out
+
+
+def test_a_failed_probe_is_reported_and_exits_non_zero(
+    monkeypatch: Any, capsys: Any
+) -> None:
+    """A probe reports; it does not raise, and it does not claim success."""
+    import argparse
+
+    from verity_cli.main import cmd_doctor
+
+    monkeypatch.setenv("VERITY_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    def refuse(*_args: Any, **_kwargs: Any) -> Completion:
+        raise ProviderError("401 Unauthorized")
+
+    monkeypatch.setattr(
+        "verity_ai.providers.OpenAICompatibleProvider.complete_json", refuse)
+
+    code = cmd_doctor(argparse.Namespace(
+        sandbox_url="http://127.0.0.1:1", probe_ai=True, no_color=True))
+    out = capsys.readouterr().out
+
+    assert code == 1
+    assert "probe" in out
+    assert "401 Unauthorized" in out
+    assert "answered" not in out
+
+
+def test_a_chain_remembers_what_failed_even_when_it_succeeds(monkeypatch: Any) -> None:
+    """A fallback that answers is still a fallback.
+
+    The failures list used to be discarded the moment any provider succeeded,
+    so a dead primary sat invisible behind a healthy chain. That is the exact
+    failure a chain is meant to make survivable -- not unnoticeable.
+    """
+
+    class Dead:
+        name, model, api_key = "dead", "m", "k"
+        input_price = output_price = None
+
+        def available(self) -> bool:
+            return True
+
+        def complete_json(self, system: str, user: str, *, schema_hint: str = "") -> Completion:
+            raise ProviderError("401 Unauthorized")
+
+    class Alive:
+        name, model, api_key = "alive", "m2", "k"
+        input_price = output_price = None
+
+        def available(self) -> bool:
+            return True
+
+        def complete_json(self, system: str, user: str, *, schema_hint: str = "") -> Completion:
+            return Completion(data={"ok": True}, model="m2", usd=0.0)
+
+    chain = FallbackProvider(providers=(Dead(), Alive()))
+    completion = chain.complete_json("s", "u")
+
+    assert completion.data == {"ok": True}
+    assert chain.used.name == "alive"
+    assert chain.fell_back
+    assert chain.failures == [("dead", "401 Unauthorized")]
+
+
+def test_a_probe_that_fell_back_does_not_report_plain_success(
+    monkeypatch: Any, capsys: Any
+) -> None:
+    """`doctor --probe-ai` must not say "answered" when the first choice died."""
+    import argparse
+
+    from verity_cli.main import cmd_doctor
+
+    monkeypatch.setenv("VERITY_LLM_PROVIDER", "openai+fireworks")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("FIREWORKS_API_KEY", "f")
+
+    def maybe(self: Any, system: str, user: str, *, schema_hint: str = "") -> Completion:
+        if self.name == "openai":
+            raise ProviderError("HTTP 502 -- <!DOCTYPE html>")
+        return Completion(data={"ok": True}, model=self.model, usd=0.0)
+
+    monkeypatch.setattr(
+        "verity_ai.providers.OpenAICompatibleProvider.complete_json", maybe)
+    monkeypatch.setattr("verity_ai.providers.FireworksProvider.complete_json", maybe)
+
+    code = cmd_doctor(argparse.Namespace(
+        sandbox_url="http://127.0.0.1:1", probe_ai=True, no_color=True))
+    out = capsys.readouterr().out
+
+    assert "openai FAILED: HTTP 502" in out
+    assert "fell back" in out
+    assert "your first choice did not" in out
+    assert code == 1

@@ -14,7 +14,7 @@ while billing a card is worse than one that admits it cannot tell.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -262,16 +262,6 @@ PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "keys": ("OPENAI_API_KEY",),
         "input_price": None, "output_price": None,
     },
-    # An aggregator behind one OpenAI-compatible endpoint. Named rather than
-    # reached by overriding another provider's base URL, so it can take its
-    # place in a fallback chain and be priced on its own terms.
-    "codecraft": {
-        "cls": OpenAICompatibleProvider,
-        "base_url": "https://codecraftapi.com/v1",
-        "model": "gemini-3.7-flash",
-        "keys": ("CODECRAFT_API_KEY",),
-        "input_price": None, "output_price": None,
-    },
     "ollama": {
         "cls": OllamaProvider,
         "base_url": "http://127.0.0.1:11434/v1",
@@ -332,16 +322,6 @@ def build_provider(
 KNOWN_PRICES: dict[tuple[str, str], tuple[float, float]] = {
     # Fireworks, standard serving tier, read 2026-09-07.
     ("fireworks", "accounts/fireworks/models/glm-5p3-flash"): (0.15, 0.50),
-    # CodeCraft, read from its own model listing 2026-09-08. An aggregator's
-    # prices move with the upstream it resells, so these are the ones most
-    # likely to go stale; an absent model reports as unpriced rather than
-    # guessed, which is the behaviour that matters.
-    ("codecraft", "gemini-3.7-flash"): (1.24, 1.24),
-    ("codecraft", "deepseek-v4-pro-0813"): (0.55, 0.55),
-    ("codecraft", "qwen3.8-27b"): (0.57, 0.57),
-    ("codecraft", "seed-2.1-turbo"): (0.92, 0.92),
-    ("codecraft", "seed-2.1-pro"): (1.15, 1.15),
-    ("codecraft", "kimi-k2.6"): (1.22, 1.22),
 }
 
 
@@ -377,11 +357,25 @@ class FallbackProvider:
     A refusal is not a reason to try the next provider. Only a transport-level
     failure is: if a provider answered and the answer was unusable, the next
     provider will likely produce the same unusable answer at twice the cost.
+
+    A fallback that answers is still a fallback. The providers that failed on
+    the way are kept rather than discarded, because a chain that silently
+    covers for a dead primary is how a team discovers in production that their
+    first choice has been down for a month. Success is reported with its cost.
     """
 
     providers: tuple[Any, ...]
     #: Set to the provider that answered, so a caller can report it honestly.
     used: Any = None
+
+    #: (provider name, error) for each provider tried before one answered.
+    #: Populated on success as well as on failure.
+    failures: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def fell_back(self) -> bool:
+        """True when something earlier in the chain failed and was covered for."""
+        return bool(self.failures) and self.used is not None
 
     @property
     def name(self) -> str:
@@ -413,19 +407,22 @@ class FallbackProvider:
                 "the matching API key, or run without --ai."
             )
 
-        failures: list[str] = []
+        self.failures = []
+        self.used = None
         for provider in ready:
             try:
                 completion: Completion = provider.complete_json(
                     system, user, schema_hint=schema_hint
                 )
             except ProviderError as exc:
-                failures.append(str(exc))
+                self.failures.append((str(provider.name), str(exc)))
                 continue
             self.used = provider
             return completion
 
-        raise ProviderError("; then ".join(failures))
+        raise ProviderError(
+            "; then ".join(f"{name}: {error}" for name, error in self.failures)
+        )
 
 
 def build_chain(
