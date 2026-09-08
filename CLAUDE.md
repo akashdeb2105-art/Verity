@@ -24,10 +24,11 @@ not establish, the product has no reason to exist.
 | **M2c** | **Tier-2 browser executor + run replay** | **next** |
 | M3 | nightly canary, scheduler, notifications, benchmark harness, OTel | after |
 | M4 | Studio — three-panel app, contract editor, run timeline, evidence viewer, approval bar, takeover, correction delta | after |
-| M5 | marketing website (11-scene storyboard in `WEB_CREATIVE_DIRECTION.md`) | last |
+| M5 | marketing website (11-scene storyboard in `docs/web/CREATIVE_DIRECTION.md`) | last |
 
 **The website is last, and that is deliberate.** Its own creative direction
-document says building it early is how the engine ends up fake. Scenes are only
+document (`docs/web/CREATIVE_DIRECTION.md`) says building it early is how
+the engine ends up fake. Scenes are only
 honest once the milestone behind them exists. Do not start it early, and say so
 if asked to.
 
