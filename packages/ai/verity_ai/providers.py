@@ -262,6 +262,16 @@ PROVIDER_DEFAULTS: dict[str, dict[str, Any]] = {
         "keys": ("OPENAI_API_KEY",),
         "input_price": None, "output_price": None,
     },
+    # An aggregator behind one OpenAI-compatible endpoint. Named rather than
+    # reached by overriding another provider's base URL, so it can take its
+    # place in a fallback chain and be priced on its own terms.
+    "codecraft": {
+        "cls": OpenAICompatibleProvider,
+        "base_url": "https://codecraftapi.com/v1",
+        "model": "gemini-3.7-flash",
+        "keys": ("CODECRAFT_API_KEY",),
+        "input_price": None, "output_price": None,
+    },
     "ollama": {
         "cls": OllamaProvider,
         "base_url": "http://127.0.0.1:11434/v1",
@@ -277,8 +287,16 @@ def build_provider(
     *,
     model: str | None = None,
     client: httpx.Client | None = None,
+    use_env_model: bool = True,
 ) -> Any:
-    """Construct the configured provider, or a NullProvider if none is set."""
+    """Construct the configured provider, or a NullProvider if none is set.
+
+    ``use_env_model=False`` makes the provider ignore ``VERITY_LLM_MODEL`` and
+    take its own default. A fallback chain uses that for every provider after
+    the first: a model name belongs to the provider that serves it, and
+    passing one provider's name to the next produces a 404 at the moment the
+    fallback was supposed to save the run.
+    """
     from .base import NullProvider
 
     chosen = (name or env("VERITY_LLM_PROVIDER") or "").strip().lower()
@@ -293,7 +311,8 @@ def build_provider(
         )
 
     api_key = env(*spec["keys"]) if spec["keys"] else "local"
-    chosen_model = model or env("VERITY_LLM_MODEL") or spec["model"]
+    env_model = env("VERITY_LLM_MODEL") if use_env_model else ""
+    chosen_model = model or env_model or spec["model"]
     input_price, output_price = _price_of(chosen, chosen_model, spec)
     cls = spec["cls"]
     return cls(
@@ -313,6 +332,16 @@ def build_provider(
 KNOWN_PRICES: dict[tuple[str, str], tuple[float, float]] = {
     # Fireworks, standard serving tier, read 2026-09-07.
     ("fireworks", "accounts/fireworks/models/glm-5p3-flash"): (0.15, 0.50),
+    # CodeCraft, read from its own model listing 2026-09-08. An aggregator's
+    # prices move with the upstream it resells, so these are the ones most
+    # likely to go stale; an absent model reports as unpriced rather than
+    # guessed, which is the behaviour that matters.
+    ("codecraft", "gemini-3.7-flash"): (1.24, 1.24),
+    ("codecraft", "deepseek-v4-pro-0813"): (0.55, 0.55),
+    ("codecraft", "qwen3.8-27b"): (0.57, 0.57),
+    ("codecraft", "seed-2.1-turbo"): (0.92, 0.92),
+    ("codecraft", "seed-2.1-pro"): (1.15, 1.15),
+    ("codecraft", "kimi-k2.6"): (1.22, 1.22),
 }
 
 
@@ -411,9 +440,10 @@ def build_chain(
     to OpenRouter. A single name behaves exactly as before, so nothing that
     names one provider changes.
 
-    An explicit --ai-model applies to the first provider only. Model names are
-    not portable between providers, so handing one provider's name to another
-    would produce a confusing 404 rather than a working fallback.
+    A chosen model applies to the first provider only -- whether it arrived as
+    ``--ai-model`` or as ``VERITY_LLM_MODEL``. Model names are not portable
+    between providers, and handing one provider's name to the next produces a
+    404 at exactly the moment the fallback was supposed to save the run.
     """
     from .base import NullProvider
 
@@ -423,7 +453,12 @@ def build_chain(
         return build_provider(names, model=model, client=client)
 
     built = [
-        build_provider(part, model=model if index == 0 else None, client=client)
+        build_provider(
+            part,
+            model=model if index == 0 else None,
+            client=client,
+            use_env_model=index == 0,
+        )
         for index, part in enumerate(parts)
     ]
     usable = [p for p in built if not isinstance(p, NullProvider)]

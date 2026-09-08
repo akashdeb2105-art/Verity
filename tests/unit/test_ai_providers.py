@@ -401,3 +401,60 @@ def test_a_chain_is_built_from_a_plus_separated_list(monkeypatch: Any) -> None:
 def test_one_provider_name_still_builds_one_provider(monkeypatch: Any) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "o")
     assert not isinstance(build_chain("openrouter"), FallbackProvider)
+
+
+def test_a_chosen_model_applies_only_to_the_first_provider(monkeypatch: Any) -> None:
+    """A model name belongs to the provider that serves it.
+
+    ``VERITY_LLM_MODEL`` used to reach every provider in the chain, because
+    each one read the variable for itself. The fallbacks then carried a model
+    their API has never heard of, so the chain would 404 at exactly the moment
+    it was supposed to save the run -- and it would look like the fallback
+    provider was broken rather than misconfigured.
+    """
+    monkeypatch.setenv("CODECRAFT_API_KEY", "cc_test")
+    monkeypatch.setenv("FIREWORKS_API_KEY", "f")
+    monkeypatch.setenv("GOOGLE_API_KEY", "g")
+    monkeypatch.setenv("VERITY_LLM_MODEL", "gemini-3.7-flash")
+
+    chain = build_chain("codecraft+fireworks+gemini")
+
+    assert isinstance(chain, FallbackProvider)
+    first, *rest = chain.providers
+    assert first.model == "gemini-3.7-flash"
+    assert [p.model for p in rest] == [
+        "accounts/fireworks/models/glm-5p3-flash",
+        "gemini-3.5-flash",
+    ]
+
+
+def test_an_openai_compatible_aggregator_is_a_provider_of_its_own(
+    monkeypatch: Any,
+) -> None:
+    """Named, rather than reached by overriding another provider's base URL.
+
+    A name is what lets it take a position in a fallback chain and be priced
+    on its own terms.
+    """
+    monkeypatch.setenv("CODECRAFT_API_KEY", "cc_test")
+    monkeypatch.delenv("VERITY_LLM_MODEL", raising=False)
+
+    provider = build_chain("codecraft")
+
+    assert provider.name == "codecraft"
+    assert provider.base_url == "https://codecraftapi.com/v1"
+    assert provider.available()
+
+
+def test_an_unpriced_model_is_reported_as_unpriced_rather_than_guessed(
+    monkeypatch: Any,
+) -> None:
+    """An aggregator resells upstreams whose prices move. A made-up cost is
+    worse than an admitted gap."""
+    monkeypatch.setenv("CODECRAFT_API_KEY", "cc_test")
+    monkeypatch.setenv("VERITY_LLM_MODEL", "some-model-nobody-has-priced")
+
+    provider = build_chain("codecraft")
+
+    assert provider.input_price is None
+    assert provider.output_price is None
