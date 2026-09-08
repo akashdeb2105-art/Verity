@@ -48,12 +48,21 @@ from .report import (
     VerificationReport,
 )
 from .trace import RuntimeInfo, Trace, TraceArtifact, TraceStep, TraceTarget
-from .workgraph import Edge, Node, RetryPolicy, VariableSpec, WorkGraph, WriteSpec
+from .workgraph import (
+    BrowserAction,
+    Edge,
+    Node,
+    RetryPolicy,
+    VariableSpec,
+    WorkGraph,
+    WriteSpec,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
     "Assertion",
     "AssertionResult",
+    "BrowserAction",
     "BudgetReport",
     "Budgets",
     "Channel",

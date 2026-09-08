@@ -10,9 +10,16 @@ than the only one.
 It reports what it saw and never interprets it. No selectors are invented, no
 intent is guessed; that is the compiler's work, and keeping it out of the page
 means a recording stays valid when the compiler changes.
+
+The structural page hash is not defined here. It is a comparison primitive that
+a ``DRIFT`` verdict rests on, so there is exactly one copy of it --
+:data:`verity_browser.domhash.DOM_HASH_JS` -- and it is spliced in below rather
+than kept as a second implementation that could drift from the first.
 """
 
-INIT_SCRIPT = r"""
+from verity_browser.domhash import DOM_HASH_JS
+
+_INIT_SCRIPT_TEMPLATE = r"""
 (() => {
   if (window.__verityInstalled) return;
   window.__verityInstalled = true;
@@ -113,22 +120,9 @@ INIT_SCRIPT = r"""
   };
 
   // Structural fingerprint: tags and roles only, all text discarded. Two pages
-  // showing different data hash the same; a redesign does not.
-  const domHash = () => {
-    const parts = [];
-    const walk = (node, depth) => {
-      if (depth > 12 || parts.length > 4000) return;
-      for (const child of node.children) {
-        parts.push(child.tagName.toLowerCase() + (child.getAttribute("role") || ""));
-        walk(child, depth + 1);
-      }
-    };
-    walk(document.body || document.documentElement, 0);
-    let hash = 5381;
-    const joined = parts.join(">");
-    for (let i = 0; i < joined.length; i++) hash = ((hash << 5) + hash + joined.charCodeAt(i)) | 0;
-    return "djb2:" + (hash >>> 0).toString(16);
-  };
+  // showing different data hash the same; a redesign does not. Defined once, in
+  // verity_browser.domhash, and spliced in here.
+  __VERITY_DOM_HASH_JS__
 
   // Values the screen is actually showing. This is the raw material for
   // noticing that the person was comparing two numbers.
@@ -162,7 +156,7 @@ INIT_SCRIPT = r"""
         value: value === undefined ? null : value,
         value_withheld_in_page: isSecretField(el),
         visible_text: visibleValues(),
-        dom_hash: domHash(),
+        dom_hash: __verityStructuralHash(),
         ts: new Date().toISOString(),
       });
     } catch (err) { /* never let recording break the page */ }
@@ -202,3 +196,6 @@ INIT_SCRIPT = r"""
   window.__verityReady = true;
 })();
 """
+
+#: The page script, with the one shared structural-hash definition spliced in.
+INIT_SCRIPT = _INIT_SCRIPT_TEMPLATE.replace("__VERITY_DOM_HASH_JS__", DOM_HASH_JS)

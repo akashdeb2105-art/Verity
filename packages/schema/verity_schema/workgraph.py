@@ -56,6 +56,35 @@ class WriteSpec(_Frozen):
     payload: dict[str, str] = Field(default_factory=dict)
 
 
+class BrowserAction(_Frozen):
+    """Where a read node acts in a browser, and what it does there.
+
+    Present on browser-driven read nodes the way :class:`WriteSpec` is present
+    on consequential ones: a node that only looks at the world still has to say
+    *which* page and *which* element, or a driver has nothing to carry out.
+    Like ``write``, this is a claim about how to act -- not evidence, and never
+    a fact a verdict rests on.
+
+    ``value`` interpolates ``{{ inputs.name }}`` and nothing else, for the same
+    reason a payload does: a reviewer can only consent to what they can see. No
+    model resolves a ``target``; the strings here are matched literally.
+    """
+
+    url: str = ""
+    """NAVIGATE destination, resolved against the run's base URL."""
+
+    target: str = ""
+    """A ``data-testid`` value (or ``role=name`` pair) naming the element for
+    CLICK, TYPE and SELECT."""
+
+    value: str = ""
+    """What TYPE enters or SELECT chooses. May interpolate ``{{ inputs.name }}``."""
+
+    extract: dict[str, str] = Field(default_factory=dict)
+    """For EXTRACT: output name -> ``data-testid``. Each value is read from the
+    page verbatim and recorded on the trace, never handed to the verifier."""
+
+
 class Node(_Frozen):
     id: str
     type: ActionType
@@ -78,6 +107,11 @@ class Node(_Frozen):
     write: WriteSpec | None = None
     """Set on nodes that change the world. Absent on every node that only reads,
     which is what lets a runtime tell the two apart without guessing."""
+
+    browser: BrowserAction | None = None
+    """Set on a read node a browser driver should carry out for real. Absent on
+    a node the runtime only records -- so a driver can tell a step it drove from
+    one it merely noted, and a replay can tell the two runs apart."""
 
 
 class Edge(_Frozen):

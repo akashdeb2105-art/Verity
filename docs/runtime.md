@@ -63,6 +63,118 @@ cannot see.
 
 A consequential node without a `write` spec is an error, not a guess.
 
+## Tier 2: driving a browser
+
+By default a read step is a recorded no-op: `NAVIGATE`, `CLICK`, `TYPE`,
+`SELECT` and `EXTRACT` record that the step was reached and nothing happens.
+`--browser` carries them out for real against a live UI.
+
+```bash
+verity run examples/workgraphs/invoice_to_po_browser.yaml \
+  --contract examples/contracts/invoice_to_po.yaml --browser \
+  --sandbox http://127.0.0.1:8099 \
+  --input invoice_number=INV-4471 --input po_number=PO-2211 \
+  --run-id run_browser --approvals approvals.json
+```
+
+```
+  invoice_to_po_browser  run_browser
+  tier 2: drove a browser, 7 page steps
+
+  ok   1  NAVIGATE      Open the invoices list
+  ok   2  TYPE          Type the invoice number into the filter
+  ok   3  SELECT        Filter by invoice number
+  ok   4  CLICK         Click Find
+  ok   5  EXTRACT       Read the invoice row
+  ok   6  NAVIGATE      Open the purchase order
+  ok   7  EXTRACT       Read the purchase order
+  ok   8  CREATE_RECORD Create the draft bill  wrote
+
+  runtime said  DONE      verifier says  PASS
+```
+
+Three properties hold whether or not a browser was driven:
+
+- **The runtime imports no browser.** It walks the read steps through a
+  `BrowserDriver` protocol (`verity_runtime/ports.py`); the Playwright-backed
+  implementation lives in `verity_browser` and the CLI composes the two, the
+  same shape as the verification gate. An import-linter contract enforces it.
+- **A browser observation is not a fact.** What a page showed is recorded on
+  the run's trace and used by replay. It is never handed to the verifier,
+  which reads the world through its own connectors. Point the same contract at
+  the same sandbox with the altered invoice and a Tier-2 run halts before
+  `create_bill` with `verifier says FAIL`, exactly as the no-op run does.
+- **The consequential write is still connector-gated.** `create_bill` goes
+  through the `ledger` connector, behind policy, verification and approval —
+  the browser is not in that path. What a browser *can* do, and what M2c does
+  not yet restrict, is submit an HTML form: a browser-native POST that bypasses
+  that gate entirely. The shipped browser graph only drives a read-only page,
+  and a test asserts the sandbox state hash does not move; a graph that pointed
+  `CLICK` at a mutating form would not be stopped. See `SECURITY.md`, "Gaps in
+  enforcement".
+
+A driven read that cannot observe what it claimed to — a navigation that times
+out, an `EXTRACT` whose target is not on the page — halts the run before the
+next consequential step, `halted by: observation`. "I could not look" is not
+permission to write, any more than `INCONCLUSIVE` is.
+
+`--browser` needs Chromium: `pip install ".[browser]" && playwright install chromium`.
+
+## Replay and diff
+
+Every `verity run` and `verity dry-run` writes a run record to
+`.verity/runs/<run_id>/` (`--no-record` opts out; `--runs-dir` moves it). It is
+five JSON files — the plan, the report, the trace, the audit chain, and a
+`meta.json` with enough to re-run. There is no database.
+
+```bash
+verity replay run_browser --sandbox http://127.0.0.1:8099
+```
+
+Replay re-executes the recorded graph with the recorded inputs, **always as a
+dry run** — replay is a comparison, not a repetition, and it writes nothing
+whatever the recorded run did — and prints how the two runs differ.
+
+```
+  baseline run_browser (browser)
+  replay   run_browser_replay (browser)
+
+  identical: no difference between the two runs
+```
+
+A **difference** is one of: `path` (a different step sequence), `step-status`,
+`structural` (a step's page structure changed — browser runs only), `extract`
+(a step read a different value), `write` (a different payload digest),
+`verdict`, `outcome`. Timing, run ids and audit hashes are **never** a
+difference — a canary that fired on those would be noise.
+
+`structural` uses `dom_hash`, a fingerprint of the page's tag-and-role
+skeleton — two 32-bit passes (djb2 and FNV-1a) over a pre-order tag+role
+stream, joined into 64 bits (`dom1:…`). It ignores renamed classes, reflowed
+whitespace, reordered attributes and changed text; it moves when an element is
+added, removed, renamed or reordered. Add a second `PO-2211` row to the sandbox
+and replay reports it:
+
+```
+  structural read_purchase_order: the page structure changed underneath this step
+      baseline  dom1:8aa3b5483eb309c0
+      replay    dom1:a88295042f7d08ee
+  verdict: verification concluded differently
+      baseline  PASS
+      replay    INCONCLUSIVE
+```
+
+**A tier boundary is not drift.** A browser run replayed with `--no-browser`
+reports one `tier` difference, is marked *not comparable*, and is never called
+identical — "I read the page" and "I recorded that I would have" are different
+claims:
+
+```
+  not comparable: the replay did not drive a browser, the baseline did
+```
+
+`verity replay` exits `0` when the two runs are identical and `1` otherwise.
+
 ## The gate
 
 Before the first consequential step — once, not per step — the contract is
@@ -228,11 +340,24 @@ the file, and Verity does not have one yet. See
   approvals file can write an approval. Identity and signatures come with
   Studio in M4.
 - **An anchor for the audit head**, without which truncation is undetectable.
-- **The Tier-2 browser executor** and run replay.
+- **Retry.** A Tier-2 read step is a single attempt honouring `timeout_ms`;
+  `RetryPolicy` on a node is not yet applied.
+- **Cross-environment replay.** `verity replay` re-runs against the sandbox URL
+  the record names. It cannot replay a staging run against production.
+- **A second drift signal.** `dom_hash` is a pre-order tag+role stream with no
+  close markers, so it cannot see an element that is re-nested without changing
+  the order elements are first visited in. Every reorder and every reparent
+  that changes visit order is still caught. Stated in `verity_browser/domhash.py`
+  and pinned in `tests/browser/test_domhash.py`.
 - **Extraction robustness.** Four of the fifteen injection payloads disturb
   the invoice PDF's layout enough that vendor extraction misses and reports
   `FAIL` on an invoice whose vendor is unchanged. Safe, but wrong; named and
   pinned in `tests/security/test_injection_suite.py`.
+- **One security test is unverified on Python 3.14 + Windows.**
+  `test_verification_opens_no_network_sockets` patches `socket.socket`, which
+  deadlocks Starlette's `TestClient` on that interpreter/OS pair (a harness
+  bug, not this code). It is skipped there and runs on CI's Python 3.10 and
+  3.12. See `SECURITY.md`.
 
-Until the first two exist, `verity run` should be pointed at a sandbox, not at
-a system you care about.
+Until signed approvals and an audit anchor exist, `verity run` should be
+pointed at a sandbox, not at a system you care about.

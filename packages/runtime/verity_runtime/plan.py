@@ -19,9 +19,19 @@ from verity_schema.workgraph import Edge, Node, WorkGraph
 #: Actions that change the world. Everything else only looks at it.
 #:
 #: The list is deliberately about *effect*, not about risk score: CLICK is not
-#: here even though a click can submit a form, because the runtime never
-#: reaches a system of record through a click -- writes go through the
-#: connector boundary, where they can be intercepted.
+#: here even though a click can submit a form, because the runtime never routes
+#: a *connector-mediated* write through a click -- those go through the
+#: connector boundary, where WriteGuard, policy and approval can intercept them.
+#:
+#: GAP (M2c): once a real browser is driven, that is not the whole story. A
+#: Tier-2 CLICK that submits an HTML form is a browser-native POST on a
+#: separate channel that never reaches WriteGuard, policy, approval or the
+#: audit chain. Nothing here restricts CLICK/TYPE/SELECT to non-mutating pages;
+#: today that is held closed only by the single shipped browser graph
+#: targeting a GET-only surface. Closing it needs a read-only-surface
+#: declaration on the graph plus a plan-time check, and that must land before
+#: any graph beyond examples/workgraphs/invoice_to_po_browser.yaml is allowed
+#: to drive a browser. See SECURITY.md, "Gaps in enforcement".
 CONSEQUENTIAL: frozenset[str] = frozenset({
     "CREATE_RECORD", "UPDATE_RECORD", "SEND_MESSAGE", "CALL_API",
 })

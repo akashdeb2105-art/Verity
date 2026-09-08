@@ -1,0 +1,118 @@
+# The AP workflow again -- but the reads drive a real browser.
+#
+# The companion graph examples/workgraphs/invoice_to_po.yaml records its read
+# steps as no-ops. This one carries them out against the sandbox UI: it opens
+# the invoices page, types an invoice number into the filter, selects a field,
+# clicks Find, and reads the row back; then it opens the purchase order page
+# and reads that. Only the last node changes anything, and it changes it
+# through the ledger connector -- never through the browser. A CLICK in this
+# runtime is never the path to a system of record.
+#
+# It points at the SAME contract as the no-op graph. A contract checks an
+# outcome, not the executor that produced it -- so verification passes or fails
+# identically whichever graph ran.
+#
+#   verity run examples/workgraphs/invoice_to_po_browser.yaml \
+#     --contract examples/contracts/invoice_to_po.yaml --browser \
+#     --input invoice_number=INV-4471 --input po_number=PO-2211 \
+#     --run-id run_browser --approvals approvals.json
+
+apiVersion: verity/v1
+kind: WorkGraph
+name: invoice_to_po_browser
+version: 0.1.0
+contract_ref: examples/contracts/invoice_to_po.yaml
+
+variables:
+  - { name: invoice_number, type: string, source_kind: input, label: OBSERVED }
+  - { name: po_number, type: string, source_kind: input, label: OBSERVED }
+
+nodes:
+  - id: open_invoices
+    type: NAVIGATE
+    label: Open the invoices list
+    intent: the UI a browser agent would work in
+    execution_strategies: [browser]
+    browser:
+      url: /ui/invoices
+
+  - id: filter_invoice
+    type: TYPE
+    label: Type the invoice number into the filter
+    execution_strategies: [browser]
+    browser:
+      target: invoice-filter
+      value: "{{ inputs.invoice_number }}"
+
+  - id: choose_field
+    type: SELECT
+    label: Filter by invoice number
+    execution_strategies: [browser]
+    browser:
+      target: field-filter
+      value: number
+
+  - id: run_filter
+    type: CLICK
+    label: Click Find
+    execution_strategies: [browser]
+    browser:
+      target: find
+
+  - id: read_invoice
+    type: EXTRACT
+    label: Read the invoice row
+    intent: what the screen shows for this invoice
+    outputs: [invoice_total, invoice_vendor]
+    execution_strategies: [browser]
+    browser:
+      extract:
+        invoice_total: inv-total
+        invoice_vendor: inv-vendor
+
+  - id: open_purchase_order
+    type: NAVIGATE
+    label: Open the purchase order
+    execution_strategies: [browser]
+    browser:
+      url: "/ui/purchase-orders/{{ inputs.po_number }}"
+
+  - id: read_purchase_order
+    type: EXTRACT
+    label: Read the purchase order
+    intent: what was actually authorised
+    outputs: [po_total, po_vendor]
+    execution_strategies: [browser]
+    browser:
+      extract:
+        po_total: po-total
+        po_vendor: po-vendor
+
+  # The only node that changes anything. It writes through the ledger
+  # connector, gated exactly as in the no-op graph -- the browser is not in
+  # this path.
+  - id: create_bill
+    type: CREATE_RECORD
+    label: Create the draft bill
+    intent: raise a payable against the purchase order
+    risk: MEDIUM
+    approval_required: true
+    write:
+      connector: ledger
+      resource: bill
+      payload:
+        vendor: Acme Supplies
+        ref: "{{ inputs.invoice_number }}"
+        number: "{{ inputs.invoice_number }}"
+        amount: "14800.00"
+        currency: USD
+        status: DRAFT
+
+edges:
+  - { from: open_invoices, to: filter_invoice }
+  - { from: filter_invoice, to: choose_field }
+  - { from: choose_field, to: run_filter }
+  - { from: run_filter, to: read_invoice }
+  - { from: read_invoice, to: open_purchase_order }
+  - { from: open_purchase_order, to: read_purchase_order }
+  - { from: read_purchase_order, to: create_bill }

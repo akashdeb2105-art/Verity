@@ -14,6 +14,7 @@ root_packages =
     verity_extract
     verity_verifier
     verity_capture
+    verity_browser
     verity_compiler
     verity_runtime
     verity_ai
@@ -28,6 +29,7 @@ source_modules =
 forbidden_modules =
     verity_runtime
     verity_capture
+    verity_browser
     verity_compiler
     verity_runtime
     verity_ai
@@ -73,6 +75,7 @@ layers =
     verity_cli
     verity_verifier | verity_compiler
     verity_capture
+    verity_browser
     verity_ai
     verity_connectors | verity_extract | verity_evidence
     verity_schema
@@ -106,6 +109,7 @@ forbidden_modules =
     verity_verifier
     verity_connectors
     verity_extract
+    verity_browser
     verity_cli
 
 [importlinter:contract:runtime-and-verifier-are-independent]
@@ -129,3 +133,22 @@ forbidden_modules =
     anthropic
     litellm
 allow_indirect_imports = False
+
+[importlinter:contract:runtime-does-not-drive-a-browser]
+name = The runtime consults a browser through a protocol, never an import
+type = forbidden
+source_modules =
+    verity_runtime
+forbidden_modules =
+    verity_browser
+    playwright
+allow_indirect_imports = False
+
+# The runtime declares a BrowserDriver protocol in verity_runtime.ports and
+# walks the read steps through it. The Playwright-backed implementation lives in
+# verity_browser; verity_cli adapts one to the other. This is the same shape as
+# ADR-0011's rule that the runtime never imports the verifier: an executor the
+# browser package could not be swapped out of would quietly end the claim that
+# a contract can check a run somebody else's agent produced. Broken once on
+# purpose (a bare `import verity_browser` in execute.py) and watched go red
+# before it was trusted. See ADR-0014.

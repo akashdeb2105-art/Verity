@@ -12,9 +12,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from verity_schema.trace import Trace
+
 from .audit import AuditLog
 from .audit import verify as verify_audit
-from .ports import GateResult, GateVerdict
+from .ports import TIER_RECORDED, GateResult, GateVerdict
 
 
 class RunOutcome(str, Enum):
@@ -103,6 +105,16 @@ class RunReport:
     """Every decision in the run, chained. See :mod:`verity_runtime.audit` for
     what a hash chain does and does not prove."""
 
+    executor_tier: str = TIER_RECORDED
+    """Which executor carried out the read steps: ``recorded`` (drove nothing)
+    or ``browser``. A replay across this boundary is refused, not diffed --
+    "I read the page" and "I recorded that I would have" are different claims."""
+
+    trace: Trace | None = None
+    """What the browser saw, in the portable ``verity-trace/v1`` shape. ``None``
+    when no browser was driven. Data for a person and for replay; never a fact
+    the verifier is shown."""
+
     @property
     def runtime_said(self) -> str:
         """What an ordinary agent would have reported.
@@ -161,12 +173,15 @@ class RunReport:
             "halted_by": self.halted_by,
             "halt_reason": self.halt_reason,
             "policy": self.policy_name,
+            "executor_tier": self.executor_tier,
             "not_performed": list(self.not_performed),
             "node_sequence": self.node_sequence,
             "writes_performed": [s.node_id for s in self.writes_performed],
             "budgets": {"model_calls": self.model_calls, "cost_usd": self.cost_usd},
             "audit": {"entries": len(self.audit), "head": self.audit_head,
                       "intact": self.audit_intact},
+            "trace": None if self.trace is None
+            else self.trace.model_dump(mode="json", by_alias=True),
             "steps": [
                 {
                     "index": s.index, "node": s.node_id, "action": s.action,
@@ -174,6 +189,7 @@ class RunReport:
                     "performed_write": s.performed_write,
                     "write_digest": s.write_digest, "error": s.error,
                     "risk": s.risk, "requirement": s.requirement,
+                    "outputs": dict(s.outputs),
                 }
                 for s in self.steps
             ],

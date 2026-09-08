@@ -29,9 +29,15 @@ from verity_runtime import (
     PolicyError,
     RunOptions,
     RunOutcome,
+    diff_runs,
     execute,
     pending_writes,
+    plan,
+    read_run_record,
+    record_from_report,
+    write_run_record,
 )
+from verity_runtime.runrecord import DEFAULT_RUNS_DIR
 from verity_schema.workgraph import WorkGraph
 
 from .output import Printer
@@ -145,8 +151,31 @@ def add_run_commands(sub: Any) -> None:
                             help="path to a policy file; the built-in default is used otherwise")
         parser.add_argument("--run-id", default="",
                             help="fix the run id, so approvals can be prepared in advance")
+        parser.add_argument(
+            "--browser", action="store_true",
+            help="drive a real browser through the NAVIGATE/CLICK/TYPE/SELECT/EXTRACT "
+                 "steps (Tier 2). Needs Chromium: pip install \".[browser]\" && "
+                 "playwright install chromium. Without it, read steps are recorded no-ops.",
+        )
+        parser.add_argument("--runs-dir", default=DEFAULT_RUNS_DIR,
+                            help="where to write the replayable run record")
+        parser.add_argument("--no-record", action="store_true",
+                            help="do not write a run record for this run")
         parser.add_argument("--json", action="store_true", help="machine-readable output")
         parser.set_defaults(handler=cmd_run, live=live)
+
+    replay = sub.add_parser(
+        "replay", help="re-run a recorded run and diff it against what was recorded")
+    replay.add_argument("run", help="a run id under --runs-dir, or a path to a run record")
+    replay.add_argument("--runs-dir", default=DEFAULT_RUNS_DIR)
+    replay.add_argument("--sandbox", default="", help="override the recorded sandbox URL")
+    replay.add_argument("--browser", dest="browser", action="store_true", default=None,
+                        help="force the replay to drive a browser")
+    replay.add_argument("--no-browser", dest="browser", action="store_false",
+                        help="force the replay NOT to drive a browser (expect a tier mismatch)")
+    replay.add_argument("--evidence-dir", default=".verity/evidence")
+    replay.add_argument("--json", action="store_true")
+    replay.set_defaults(handler=cmd_replay)
 
 
 def cmd_pending(args: argparse.Namespace) -> int:
@@ -238,24 +267,145 @@ def cmd_run(args: argparse.Namespace) -> int:
     base_url = args.sandbox or DEFAULT_SANDBOX_URL
     registry = build_sandbox_registry(base_url)
     writers: dict[str, WritableConnector] = {"ledger": ledger_writer(base_url)}
+    the_plan = plan(graph)
 
-    gate = ContractGate(Path(args.contract), registry, args.evidence_dir)
-    report = execute(graph, RunOptions(
+    options = RunOptions(
         inputs=inputs,
         mode=WriteMode.LIVE if args.live else WriteMode.DRY_RUN,
-        gate=gate,
+        gate=ContractGate(Path(args.contract), registry, args.evidence_dir),
         registry=registry,
         writers=writers,
         policy=policy,
         approvals=approvals,
         run_id=args.run_id,
-    ))
+    )
+    if getattr(args, "browser", False):
+        options.browser = _build_browser_driver(base_url, options.run_id or "run")
+
+    report = execute(graph, options)
+
+    if not getattr(args, "no_record", False):
+        target = write_run_record(report, the_plan, runs_dir=args.runs_dir, meta={
+            "graph_path": str(graph_path),
+            "contract_path": str(args.contract),
+            "policy_path": str(args.policy or ""),
+            "sandbox_url": base_url,
+            "browser": bool(getattr(args, "browser", False)),
+        })
+        if not args.json:
+            printer.line(printer.style(f"  run record: {target}", "dim"))
 
     if args.json:
         print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
     else:
         _print_report(printer, report, live=args.live)
     return report.outcome.exit_code
+
+
+def _build_browser_driver(base_url: str, run_id: str) -> Any:
+    """Construct the Playwright-backed driver, translating a missing install
+    into a usage error rather than a stack trace."""
+    try:
+        from .browser import PlaywrightDriver
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
+        raise SystemExit(
+            f"verity: --browser needs the browser executor ({exc.name} is missing). "
+            'Install it with: pip install ".[browser]" && playwright install chromium'
+        ) from exc
+    return PlaywrightDriver(base_url=base_url, run_id=run_id)
+
+
+def cmd_replay(args: argparse.Namespace) -> int:
+    """Re-run a recorded run, always dry, and report how the two differ.
+
+    Replay is a comparison, not a repetition. It is forced to ``DRY_RUN``, so no
+    write ever happens here whatever the recorded run did. It also grants itself
+    approval for the digests the plan produces -- not to authorise anything (a
+    dry run authorises nothing), but so the consequential step is *reached* and
+    the gate's verdict on this run can be compared to the recorded one, rather
+    than the two always diverging at an approval prompt.
+
+    A run made with a browser and one made without are different claims about
+    what was observed, so a replay across that boundary is refused rather than
+    diffed -- and never called identical.
+    """
+    from verity_connectors import DEFAULT_SANDBOX_URL, build_sandbox_registry, ledger_writer
+
+    printer = Printer()
+    record_dir = Path(args.run)
+    if not record_dir.is_dir():
+        record_dir = Path(args.runs_dir) / args.run
+    if not (record_dir / "report.json").is_file():
+        print(f"verity: no run record at {record_dir}", file=sys.stderr)
+        return EXIT_USAGE
+
+    baseline = read_run_record(record_dir)
+    meta = baseline.meta
+    graph_path = Path(str(meta.get("graph_path") or ""))
+    contract_path = Path(str(meta.get("contract_path") or ""))
+    if not graph_path.is_file() or not contract_path.is_file():
+        print(
+            "verity: the recorded run does not name a graph and contract that still "
+            f"exist (graph={graph_path}, contract={contract_path})",
+            file=sys.stderr,
+        )
+        return EXIT_USAGE
+
+    use_browser = meta.get("browser", False) if args.browser is None else args.browser
+    base_url = args.sandbox or str(meta.get("sandbox_url") or "") or DEFAULT_SANDBOX_URL
+
+    try:
+        policy = load_policy(Path(meta["policy_path"])) if meta.get("policy_path") else Policy()
+    except (OSError, ValueError, PolicyError) as exc:
+        print(f"verity: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+
+    graph = _load_graph(graph_path)
+    the_plan = plan(graph)
+    registry = build_sandbox_registry(base_url)
+
+    options = RunOptions(
+        inputs=dict(baseline.inputs),
+        mode=WriteMode.DRY_RUN,
+        gate=ContractGate(contract_path, registry, args.evidence_dir),
+        registry=registry,
+        writers={"ledger": ledger_writer(base_url)},
+        policy=policy,
+        run_id=f"{baseline.run_id}_replay",
+    )
+    if use_browser:
+        options.browser = _build_browser_driver(base_url, options.run_id)
+
+    store = InMemoryApprovalStore()
+    for pending in pending_writes(graph, options):
+        store.grant(Approval(
+            run_id=options.run_id, node_id=pending.node_id, digest=pending.digest,
+            approver="replay@verity",
+        ))
+    options.approvals = store
+
+    report = execute(graph, options)
+    replay_record = record_from_report(report, the_plan)
+    result = diff_runs(baseline, replay_record)
+
+    if args.json:
+        print(json.dumps({
+            "baseline": baseline.run_id,
+            "replay": replay_record.run_id,
+            "comparable": result.comparable,
+            "identical": result.identical,
+            "differences": [
+                {"kind": d.kind, "node_id": d.node_id, "detail": d.detail,
+                 "baseline": d.baseline, "replay": d.replay}
+                for d in result.differences
+            ],
+        }, indent=2, sort_keys=True))
+    else:
+        printer.line()
+        for line in result.render():
+            printer.line(line)
+        printer.line()
+    return result.exit_code
 
 
 def _print_report(printer: Printer, report: Any, *, live: bool) -> None:
@@ -265,6 +415,9 @@ def _print_report(printer: Printer, report: Any, *, live: bool) -> None:
         + printer.style(f"  {report.run_id}", "dim")
         + printer.style("" if live else "  (dry run -- nothing will be written)", "dim")
     )
+    if report.executor_tier == "browser":
+        seen = 0 if report.trace is None else len(report.trace.steps)
+        printer.line(printer.style(f"  tier 2: drove a browser, {seen} page steps", "dim"))
     printer.line()
 
     for step in report.steps:

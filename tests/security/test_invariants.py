@@ -8,10 +8,20 @@
 from __future__ import annotations
 
 import socket
+import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+#: On Python 3.14 + Windows, patching ``socket.socket`` (as the socket-isolation
+#: test below does) deadlocks Starlette's ``TestClient``: its anyio blocking
+#: portal needs a real socket to wake its event-loop thread, and
+#: ``future.result()`` on the request then blocks forever. The hang is in the
+#: test harness, not in Verity -- it reproduces with every Verity change
+#: reverted -- and it is specific to this interpreter/OS pair. CI runs 3.10 and
+#: 3.12, where the test runs normally. Tracked in SECURITY.md and docs/runtime.md.
+_PATCHED_SOCKET_HANGS_TESTCLIENT = sys.version_info >= (3, 14) and sys.platform == "win32"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VERIFIER_SRC = REPO_ROOT / "packages" / "verifier" / "verity_verifier"
@@ -120,12 +130,25 @@ def test_capture_can_be_imported_without_a_browser() -> None:
     """The event model, the redaction layer and the reader must not need one.
 
     It is why the compiler's tests need no Chromium, and it keeps the browser
-    at the edge of the system rather than inside it.
+    at the edge of the system rather than inside it. Checked in a fresh
+    interpreter -- an in-process check is only as good as the import order the
+    rest of the suite happens to have, and a Tier-2 test that legitimately
+    imports Playwright would defeat it.
     """
-    import verity_capture
+    import subprocess
+    import sys
 
-    assert "BrowserRecorder" in verity_capture.__all__
-    assert "playwright" not in __import__("sys").modules
+    probe = (
+        "import verity_capture, sys;"
+        "assert 'BrowserRecorder' in verity_capture.__all__;"
+        "print('playwright' if 'playwright' in sys.modules else 'clean')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True, timeout=60
+    )
+    assert result.stdout.strip() == "clean", (
+        f"importing verity_capture pulled in a browser: {result.stdout.strip()}"
+    )
 
 
 @pytest.mark.security()
@@ -156,7 +179,7 @@ def test_the_verifier_cannot_import_an_executor() -> None:
     probe = (
         "import verity_verifier, sys;"
         "leaked=[m for m in sys.modules if m.startswith(('verity_runtime',"
-        "'verity_capture','verity_compiler','verity_cli','verity_sandbox'))];"
+        "'verity_capture','verity_browser','verity_compiler','verity_cli','verity_sandbox'))];"
         "print(','.join(sorted(leaked)))"
     )
     result = subprocess.run(
@@ -168,6 +191,11 @@ def test_the_verifier_cannot_import_an_executor() -> None:
 
 
 @pytest.mark.security()
+@pytest.mark.skipif(
+    _PATCHED_SOCKET_HANGS_TESTCLIENT,
+    reason="Python 3.14 + Windows: patching socket.socket deadlocks Starlette's "
+    "TestClient portal (harness bug, not Verity). Runs on CI's 3.10 and 3.12.",
+)
 def test_verification_opens_no_network_sockets(
     run_verification: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

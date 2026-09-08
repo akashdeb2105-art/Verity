@@ -18,11 +18,14 @@ VERIFIABLE AUTOMATION
 Because the contract and the evidence layer are independent of the executor,
 Verity can verify automation it did not author and does not run.
 
-> **Status: early.** Milestones M0 and M1 — the deterministic sandbox, the
-> schema, the evidence store, the verifier, and recording a demonstration to
-> propose a contract. The execution runtime, trace adapters and scheduled
-> canaries are not built yet. Nothing below is aspirational: every command runs
-> today.
+> **Status: early.** Milestones M0–M2c — the deterministic sandbox, the schema,
+> the evidence store, the verifier, recording a demonstration to propose a
+> contract, and an execution runtime that plans a workflow, gates every
+> consequential write behind policy, verification and a payload-bound approval,
+> drives a real browser through the read steps (`--browser`), and can replay a
+> finished run to diff it against another. Scheduled canaries, Studio and the
+> marketing site are not built yet. Nothing below is aspirational: every command
+> runs today.
 
 ---
 

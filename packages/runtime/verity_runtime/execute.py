@@ -37,12 +37,21 @@ from .control import Budget, KillSwitch, NeverPulled, Stopwatch
 from .plan import Plan, Step
 from .plan import plan as build_plan
 from .policy import Decision, Policy
-from .ports import ClosedGate, GateResult, GateVerdict, VerificationGate
+from .ports import (
+    BrowserDriver,
+    ClosedGate,
+    GateResult,
+    GateVerdict,
+    RecordedNoOpDriver,
+    VerificationGate,
+)
 from .report import RunOutcome, RunReport, StepResult
 
-#: Steps that only look at the world. Anything not listed here and not
-#: consequential is carried out as a no-op with its intent recorded, so an
-#: unimplemented verb can never be mistaken for a completed one.
+#: Steps that only look at the world. Each is carried out by the run's
+#: ``BrowserDriver`` -- the default records that it was reached and drives
+#: nothing; ``--browser`` drives it for real. Anything not listed here and not
+#: consequential is an error, so an unimplemented verb can never be mistaken
+#: for a completed one.
 READ_ACTIONS: frozenset[str] = frozenset({
     "NAVIGATE", "CLICK", "TYPE", "SELECT", "EXTRACT", "SEARCH",
     "COMPARE", "TRANSFORM", "VERIFY",
@@ -67,6 +76,11 @@ class RunOptions:
 
     gate: VerificationGate = field(default_factory=ClosedGate)
     """Closed by default: a runtime with no verification configured cannot write."""
+
+    browser: BrowserDriver = field(default_factory=RecordedNoOpDriver)
+    """Carries out the read steps. The default drives nothing and records that
+    the step was reached -- the behaviour every run had before Tier 2. A real
+    browser is something a caller opts into with ``--browser``."""
 
     policy: Policy = field(default_factory=Policy)
     """What each risk level requires. Approval by default for anything that writes."""
@@ -211,6 +225,19 @@ def execute(graph: WorkGraph, options: RunOptions | None = None) -> RunReport:
             digest=result.write_digest, error=result.error,
         )
 
+        blocked = _observation_failed_before_a_write(the_plan, step, result)
+        if blocked is not None:
+            _halt(
+                context, the_plan, blocked,
+                by="observation",
+                reason=(
+                    f"{step.id} ({step.node.type}) did not observe what it claimed "
+                    f"to: {result.error}"
+                ),
+            )
+            _seal(context)
+            return report
+
     report.outcome = (
         RunOutcome.FAILED
         if any(s.status == "error" for s in report.steps)
@@ -236,12 +263,33 @@ def _stop_requested(context: _Context) -> tuple[str, str] | None:
     return None
 
 
-def _seal(context: _Context) -> None:
-    """Close the audit chain and hand its head to the report.
+def _observation_failed_before_a_write(
+    the_plan: Plan, step: Step, result: StepResult
+) -> Step | None:
+    """The consequential step a failed browser read should stop, or ``None``.
 
-    The head is the single value an external anchor would need to record. It
-    is published even though Verity has nowhere to anchor it yet, so that when
-    somewhere exists, the runs made before it are not a separate problem.
+    A read that was actually driven (``node.browser`` is set) and errored has
+    not seen the world it was about to act on. If a consequential step is still
+    ahead, the run halts before it -- the same rule as ``INCONCLUSIVE`` at the
+    gate, one step earlier. A read that fails with nothing consequential left
+    is left to end the run as ``FAILED`` on its own terms.
+    """
+    if result.status != "error" or step.node.browser is None:
+        return None
+    return next((s for s in the_plan.steps[step.index + 1:] if s.consequential), None)
+
+
+def _seal(context: _Context) -> None:
+    """Close the audit chain, collect the trace, release the browser.
+
+    The audit head is the single value an external anchor would need to record.
+    It is published even though Verity has nowhere to anchor it yet, so that
+    when somewhere exists, the runs made before it are not a separate problem.
+
+    ``finish`` and ``close`` run on every exit path, halt included: a browser
+    left open because a run stopped early is a leak, and a trace collected only
+    on success would be missing from exactly the runs a person most wants to
+    look at.
     """
     report = context.report
     context.audit.record(
@@ -250,6 +298,13 @@ def _seal(context: _Context) -> None:
         writes=len(report.writes_performed),
     )
     report.audit = context.audit
+
+    driver = context.options.browser
+    report.executor_tier = driver.tier
+    try:
+        report.trace = driver.finish()
+    finally:
+        driver.close()
 
 
 @dataclass
@@ -443,13 +498,30 @@ def _perform_write(
 
 
 def _perform_read(context: _Context, node: Node) -> dict[str, Any]:
-    """Reads are recorded, not re-derived.
+    """Carry out one read step through the browser driver.
 
-    The runtime does not evaluate the contract -- that is the gate's job, and
-    it reads through its own connectors. What the executor records here is
-    that the step was reached, which is what a trace needs to be useful.
+    The runtime still does not evaluate the contract -- that is the gate's job,
+    through its own connectors -- and what the driver saw is recorded on the
+    step and the trace, never handed to the verifier. The default driver drives
+    nothing and yields the same ``{"action", "intent"}`` a read always has.
+
+    A driven read that could not observe what it claimed to raises here. The
+    caller turns that into a halt when a consequential step is still ahead:
+    "I could not look" is no more permission to write than "I could not check".
     """
-    return {"action": node.type, "intent": node.intent or node.label}
+    observation = context.options.browser.perform(
+        verb=node.type,
+        action=node.browser,
+        intent=node.intent or node.label,
+        inputs=dict(context.options.inputs),
+        timeout_ms=node.timeout_ms,
+    )
+    if not observation.ok:
+        raise ExecutionError(
+            observation.error
+            or f"{node.type} on node {node.id!r} did not observe what it claimed to"
+        )
+    return observation.as_outputs()
 
 
 def _write_spec(node: Node) -> WriteSpec:
@@ -465,18 +537,24 @@ def _payload(spec: WriteSpec, inputs: dict[str, str]) -> dict[str, Any]:
     return {key: _fill(value, inputs) for key, value in sorted(spec.payload.items())}
 
 
-def _fill(template: str, inputs: dict[str, str]) -> str:
+def interpolate_inputs(template: str, inputs: dict[str, str]) -> str:
     """Substitute ``{{ inputs.x }}`` and nothing else.
 
     Deliberately not a template engine. The set of things a payload may
     interpolate is exactly the run's declared inputs, so a graph cannot reach
-    for anything a reviewer did not see when they approved it.
+    for anything a reviewer did not see when they approved it. The browser
+    adapter interpolates a ``BrowserAction``'s ``url`` and ``value`` through
+    this same function, so a driven step is held to the same rule as a write.
     """
     out = template
     for name, value in inputs.items():
         for spelling in (f"{{{{ inputs.{name} }}}}", f"{{{{inputs.{name}}}}}"):
             out = out.replace(spelling, value)
     return out
+
+
+#: The private spelling the rest of this module already used.
+_fill = interpolate_inputs
 
 
 def _describe(node: Node) -> str:

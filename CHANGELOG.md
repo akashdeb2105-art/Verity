@@ -8,6 +8,56 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+Milestone **M2c — the Tier-2 browser executor and run replay**. A read step
+was a recorded no-op; now it can drive a real browser, and a finished run can
+be replayed and diffed.
+
+**Browser executor** (`verity_browser`, new package)
+- `verity run --browser` carries the `NAVIGATE` / `CLICK` / `TYPE` / `SELECT` /
+  `EXTRACT` steps out against a live UI. Without it, they stay recorded no-ops
+  and every earlier guarantee is unchanged: a run with no `--browser` still
+  costs nothing and replays byte-for-byte.
+- The runtime imports no browser. It walks the read steps through a
+  `BrowserDriver` protocol in `verity_runtime.ports`; the Playwright session
+  lives in `verity_browser`, and `verity_cli` composes the two -- the same
+  shape as the verification gate. A ninth import-linter contract enforces it,
+  broken once on purpose and watched go red.
+- What the browser saw is recorded on a `verity-trace/v1` trace and used by
+  replay. It is **never** shown to the verifier, which still reads the world
+  through its own connectors. A Tier-2 run against the altered invoice halts
+  before `create_bill` with `verifier says FAIL`, exactly as the no-op run
+  does -- proven against the running sandbox with real Chromium.
+- A `CLICK` is still never a write. The one consequential step goes through the
+  `ledger` connector, gated as before; the browser drives read-only surfaces.
+  The sandbox gained one, `/ui/invoices`, with a real filter form -- a test
+  drives the whole `TYPE`/`SELECT`/`CLICK`/`EXTRACT` sequence and asserts the
+  sandbox state hash does not move by a byte.
+- A driven read that cannot observe what it claimed to halts the run before the
+  next consequential step (`halted by: observation`) -- the `INCONCLUSIVE`
+  rule, one step earlier.
+- One definition of the structural page hash (`verity_browser.domhash`), which
+  `verity_capture` now imports instead of keeping its own copy. Pinned in both
+  directions: a renamed class, reflowed whitespace, reordered attributes and
+  changed text do not move it; an added, removed, renamed or reordered element
+  does. Its one blind spot -- pure nesting depth -- is stated and tested, not
+  tuned away.
+
+**Replay** (`verity replay`)
+- Every run writes a record to `.verity/runs/<run_id>/` (five JSON files, no
+  database). `verity replay <run_id>` re-executes the same graph and inputs,
+  **always dry**, and reports how the two runs differ.
+- A difference is a changed path, step status, page structure, extracted value,
+  payload digest, verdict or outcome. Wall-clock, run ids and audit hashes are
+  never a difference -- a canary that fired on those would be noise.
+- A browser run replayed without a browser is a `tier` mismatch: one
+  difference, *not comparable*, never identical. "I read the page" and "I
+  recorded that I would have" are different claims.
+- Exit `0` when identical, `1` otherwise.
+
+**Schema**
+- `Node.browser: BrowserAction | None` -- optional, so every existing graph
+  still validates. Like `write`, it is a claim about how to act, not evidence.
+
 Milestone **M1 — teach and compile**. Verity can now watch someone do a job
 once and propose the contract itself.
 
@@ -88,6 +138,14 @@ once and propose the contract itself.
   agree, not who authorised it.
 - The audit head has nowhere external to be anchored, so truncation is
   undetectable.
+- A Tier-2 read step is a single attempt honouring `timeout_ms`; a node's
+  `RetryPolicy` is not yet applied.
+- `verity replay` re-runs against the sandbox URL the record names; it cannot
+  replay one environment's run against another.
+- `dom_hash` is a pre-order tag+role stream with no close markers, so it cannot
+  see an element re-nested without changing the order elements are first
+  visited in. Every reorder, and every reparent that changes visit order, is
+  still caught. Stated in `verity_browser/domhash.py` and pinned by a test.
 
 **The document channel**
 - A demonstration that opens a document now keeps it: fetched through the

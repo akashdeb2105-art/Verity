@@ -222,6 +222,32 @@ def create_app(seed: int = 1) -> FastAPI:
             {"messages": sandbox.state.inbox, "labels": sandbox.state.ui_labels},
         )
 
+    @app.get("/ui/invoices", response_class=HTMLResponse)
+    def ui_invoices(
+        request: Request,
+        q: str = Query(default=""),
+        field: str = Query(default="number"),
+    ) -> Any:
+        """The invoices list, with a real filter form.
+
+        A read-only surface, on purpose: it exists so a browser executor can
+        exercise TYPE, SELECT and CLICK for real without the browser ever
+        touching a system of record. Every request here is a GET; the AP
+        sandbox's one consequential write stays ``POST /api/bills``. A test
+        drives the whole form and asserts the state hash does not move.
+        """
+        column = field if field in {"number", "vendor", "po_number"} else "number"
+        needle = q.strip().lower()
+        records = [
+            i for i in sandbox.state.invoices
+            if not needle or needle in str(getattr(i, column, "")).lower()
+        ]
+        return TEMPLATES.TemplateResponse(
+            request, "invoices.html",
+            {"invoices": records, "q": q, "field": column,
+             "labels": sandbox.state.ui_labels},
+        )
+
     @app.get("/ui/purchase-orders/{number}", response_class=HTMLResponse)
     def ui_purchase_order(request: Request, number: str) -> Any:
         matches = [p for p in sandbox.state.purchase_orders if p.number == number]
@@ -308,7 +334,7 @@ def create_app(seed: int = 1) -> FastAPI:
             "note": "Synthetic fixture data. Not a product surface.",
             "api": ["/api/health", "/api/purchase_orders", "/api/bills",
                     "/api/invoices", "/api/ledger_events", "/api/inbox"],
-            "ui": ["/ui/inbox", "/ui/purchase-orders/PO-2211", "/ui/bills"],
+            "ui": ["/ui/inbox", "/ui/invoices", "/ui/purchase-orders/PO-2211", "/ui/bills"],
             "admin": ["/admin/state-hash", "/admin/perturbations", "/admin/reset"],
             "documents": ["/docs/invoices/INV-4471.pdf"],
         }

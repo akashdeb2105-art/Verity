@@ -43,6 +43,11 @@ teach = [
   # whole compiler, works without one -- which is why this is an extra.
   "playwright>=1.47,<2",
 ]
+browser = [
+  # The Tier-2 executor drives Chromium. The runtime never imports it -- the
+  # CLI adapts it behind a protocol -- so a browser is opt-in, same as teach.
+  "playwright>=1.47,<2",
+]
 dev = [
   "pytest>=9.1.1,<10",
   "pytest-cov>=7.1.0",
@@ -75,6 +80,7 @@ packages = [
   "packages/extract/verity_extract",
   "packages/ai/verity_ai",
   "packages/capture/verity_capture",
+  "packages/browser/verity_browser",
   "packages/compiler/verity_compiler",
   "packages/runtime/verity_runtime",
   "packages/verifier/verity_verifier",
@@ -99,7 +105,7 @@ ignore = ["S101"]  # assert is fine in tests and in internal invariants
 python_version = "3.10"
 strict = true
 warn_unreachable = true
-mypy_path = "packages/ai:packages/schema:packages/evidence:packages/connectors:packages/extract:packages/capture:packages/compiler:packages/runtime:packages/verifier:packages/cli:apps/sandbox"
+mypy_path = "packages/ai:packages/schema:packages/evidence:packages/connectors:packages/extract:packages/capture:packages/browser:packages/compiler:packages/runtime:packages/verifier:packages/cli:apps/sandbox"
 exclude = ["^tests/", "^bench/"]
 
 [[tool.mypy.overrides]]
@@ -112,7 +118,7 @@ testpaths = ["tests"]
 # collect from a bare clone without relying on an editable install being present.
 pythonpath = [
   "packages/schema", "packages/ai", "packages/evidence", "packages/connectors",
-  "packages/extract", "packages/capture", "packages/compiler",
+  "packages/extract", "packages/capture", "packages/browser", "packages/compiler",
   "packages/runtime", "packages/verifier", "packages/cli", "apps/sandbox",
   ".",
 ]

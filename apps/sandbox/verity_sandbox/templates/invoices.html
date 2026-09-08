@@ -1,0 +1,32 @@
+{% extends "_base.html" %}
+{% block title %}Invoices{% endblock %}
+{% block heading %}Invoices{% endblock %}
+{% block content %}
+<form method="get" action="/ui/invoices" data-testid="invoice-search">
+  <input type="text" name="q" data-testid="invoice-filter" value="{{ q }}" placeholder="filter">
+  <select name="field" data-testid="field-filter">
+    <option value="number"{% if field == 'number' %} selected{% endif %}>number</option>
+    <option value="vendor"{% if field == 'vendor' %} selected{% endif %}>vendor</option>
+    <option value="po_number"{% if field == 'po_number' %} selected{% endif %}>po_number</option>
+  </select>
+  <button type="submit" data-testid="find">Find</button>
+</form>
+<table>
+  <thead>
+    <tr><th>Number</th><th>Vendor</th><th>{{ labels.po_total }}</th><th>PO</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+  {% for inv in invoices %}
+    <tr data-testid="invoice-row" data-invoice-number="{{ inv.number }}">
+      <td data-testid="inv-number">{{ inv.number }}</td>
+      <td data-testid="inv-vendor">{{ inv.vendor }}</td>
+      <td data-testid="inv-total">{{ inv.total }}</td>
+      <td data-testid="inv-po">{{ inv.po_number }}</td>
+      <td data-testid="inv-status">reconciled</td>
+    </tr>
+  {% else %}
+    <tr data-testid="invoice-empty"><td colspan="5">no invoice matches that filter</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

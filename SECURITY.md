@@ -58,10 +58,42 @@ arguments — reachable from neither parsed page content nor model output.
 | Evidence cannot be altered undetected | Content addressing plus a merkle manifest; tampering with either fails | `tests/unit/test_evidence.py` |
 | The verifier cannot reach an executor | `import-linter` contract, declared before the executor packages exist | CI |
 | "I could not check" never becomes "it passed" | `INCONCLUSIVE` is a distinct verdict | `tests/integration/test_verification.py` |
+| Verification opens no raw sockets | `socket.socket` is patched to raise; verification still returns `PASS` through its bound connectors | `tests/security/test_invariants.py::test_verification_opens_no_network_sockets` (see gap note below) |
+| The runtime cannot reach a browser | `import-linter` forbids `verity_runtime` from importing `verity_browser` or `playwright`; it walks read steps through a `BrowserDriver` protocol | CI (`.importlinter`, contract `runtime-does-not-drive-a-browser`) |
+| A browser observation is never a fact the gate uses | The verifier reads through its own connectors; a Tier-2 run against the altered invoice still halts with the verifier's own `FAIL` | `tests/integration/test_browser_executor.py::test_the_altered_invoice_halts_before_the_bill_even_with_a_browser` |
+| A `CLICK` is never the path to a system of record | The browser drives read-only surfaces; the full `TYPE`/`SELECT`/`CLICK`/`EXTRACT` sequence leaves the sandbox state hash byte-identical | `tests/integration/test_browser_executor.py::test_the_invoices_filter_form_is_read_only` |
+| A driven read that did not observe halts before a write | A failed browser read with a consequential step ahead halts, `halted_by = "observation"` | `tests/unit/test_runtime_browser.py::test_a_failed_read_halts_before_a_consequential_step` |
+| Replay never writes | `verity replay` is forced to `DRY_RUN`; the sandbox bill count is unchanged after a replay of a run that wrote | `tests/integration/test_browser_executor.py::test_verity_run_then_replay_through_the_cli` |
+| A cross-tier replay is refused, not diffed | A browser run replayed without a browser yields one `tier` difference, `comparable = False`, never identical | `tests/unit/test_runrecord.py::test_a_replay_across_the_tier_boundary_is_refused_not_diffed` |
+| The structural page hash has one definition | `verity_capture` splices in `verity_browser.domhash.DOM_HASH_JS`; a live page and the offline string hash identically | `tests/browser/test_domhash.py::test_the_js_and_python_definitions_are_the_same_source_of_truth`, `tests/integration/test_browser_executor.py::test_the_shared_dom_hash_matches_between_a_live_page_and_the_offline_string` |
+| The structural hash is blind to cosmetics, not to structure | Renamed class, whitespace, attribute order and text do not move it; add / remove / rename / reorder does. Pure nesting depth is a stated blind spot | `tests/browser/test_domhash.py` |
 | The repository carries no credential-shaped literal | Every tracked file is scanned for token, key and JWT shapes | `tests/security/test_repository_hygiene.py` |
 | No `.env`, key or profile file is tracked | Name and suffix check over tracked files | `tests/security/test_repository_hygiene.py` |
 
-## Scope
+## Gaps in enforcement
+
+- **Browser-driven `CLICK` / `TYPE` / `SELECT` are not restricted to read-only
+  surfaces.** The write-gating guarantee — every consequential write passes
+  policy, verification, approval and the audit chain — covers the
+  *connector-mediated* write path. A Playwright `CLICK` that submits an HTML
+  form is a separate, browser-native channel: a real POST that never touches
+  `WriteGuard`, policy, approval or the audit chain. Nothing in the runtime
+  stops a graph pointing `CLICK` at a mutating form, so for a browser-driven
+  run the guarantee currently depends on graph authors targeting only
+  non-mutating pages. The one shipped browser graph
+  (`examples/workgraphs/invoice_to_po_browser.yaml`) drives a GET-only surface,
+  asserted by `tests/integration/test_browser_executor.py::test_the_invoices_filter_form_is_read_only`.
+  Closing this needs a read-only-surface declaration on the graph plus
+  plan-time enforcement, and it must land before any graph beyond that example
+  is allowed to drive a browser. Noted in
+  `packages/runtime/verity_runtime/plan.py` beside the `CONSEQUENTIAL` set.
+- **`test_verification_opens_no_network_sockets` does not run on Python 3.14 +
+  Windows.** Patching `socket.socket` there deadlocks Starlette's `TestClient`
+  portal — a harness bug, reproducible with every Verity change reverted, not a
+  regression in this code. It is skipped only on that interpreter/OS pair, with
+  the reason in the skip message. CI runs Python 3.10 and 3.12, where the
+  invariant is enforced normally. Revisit if 3.14 becomes a CI target or the
+  `TestClient` behaviour is fixed upstream.
 
 In scope: the verifier, the expression language, the contract loader, the
 evidence store, the redaction pipeline, the connectors and the CLI.
